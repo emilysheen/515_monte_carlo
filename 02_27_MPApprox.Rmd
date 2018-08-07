@@ -1,0 +1,173 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+
+To approximate the transition probability function we have to work in finite states, though infinite states can be reasonably approximated in some cases.  Let's set up the basics of birth/death process, which is basically any MP that only goes up/down one unit when it transitions.
+```{r}
+# Largest state
+p<- 4
+
+# Set up transition rates vectors
+lambda<-numeric(p+1)
+lambda[p+1] =0
+mu<-numeric(p+1)
+mu[1] = 0
+
+# Choose the rates
+lambda[-(p+1)] = 2
+mu[-1] = 2
+
+# Holding rates
+v = lambda + mu
+
+# Transition probabilities
+P<-matrix(0,nrow=(p+1),ncol=(p+1))
+spts<-cbind(1:p,2:(p+1))
+P[spts] = lambda[-(p+1)]/v[-(p+1)]
+spts<-cbind(2:(p+1),1:(p)) 
+P[spts] = mu[-1]/v[-1]
+P
+```
+
+We now set up the $\bf R$ matrix.
+```{r}
+R<-diag(v)%*%P
+diag(R)<- -v
+R
+```
+Using this matrix, we can approximate the transition probability function.
+```{r}
+#install.packages("Matrix")
+library(expm)
+t<-1
+n<-10000
+I<-diag(1,p+1,p+1)
+Pt<-(I + R*t/n) %^% n
+Pt
+```
+Let's see how thse change with $n$
+```{r}
+t<-1
+i<-0
+j<-p
+n_all<-1000
+pij<-numeric(n_all)
+for(n in 1:n_all){
+  Pt<-(I + R*t/n) %^% n
+  pij[n] = Pt[i+1,j+1]
+}
+plot(1:n_all,pij,type="l")
+```
+Finally, let's verify this with MC
+```{r}
+n<-100
+Pt<-(I + R*t/n) %^% n
+
+i<-0
+t<-1
+reps<-100000
+Xt<-numeric(reps)
+for(r in 1:reps){
+  t_c<-0
+  x_c<-i
+  while(t_c<t){
+    v_c<-v[x_c+1]
+    t_c<-t_c+rexp(1,rate=v_c)
+    if(x_c!=p){pr<-P[x_c+1,x_c+2]
+    }else{pr<-0}
+    U<-rbinom(1,1,p=pr)
+    if(U==1){x_c = x_c+1
+    }else{x_c = x_c-1}
+    if(t_c<t){Xt[r] = x_c}
+  }
+}
+summary(as.factor(Xt))/reps
+Pt[1,]
+```
+
+
+We can also use this function to simulate on a grid.  Choose an evenly spaced set of points which are $\delta t$ apart, then compute $P_{ij(\delta t)}$ and use it to simulate a discrete time chain.  
+```{r}
+T<-2
+m<-100
+times<-seq(0,T,length=m)
+delta<-T/(m-1)
+
+n<-100
+Pdel<-(I + R*delta/n) %^% n
+
+Xt<-numeric(m)
+Xt[1]<-1
+
+for(i in 2:m){
+  Pr<-Pdel[Xt[i-1]+1,]
+  Xt[i]<-sample(0:p,1,prob=Pr)
+}
+plot(times,Xt,type="l")
+```
+
+Lastly, if you want to simulate with an unbounded state space, you can approximate it with a large bounded one.  Notice that after two time units, we hit the edge of the state space.  So we can increase this.
+
+```{r}
+p<-20
+lambda<-numeric(p+1)
+lambda[p+1] =0
+mu<-numeric(p+1)
+mu[1] = 0
+
+lambda[-(p+1)] = 2
+mu[-1] = 2
+v = lambda + mu
+
+P<-matrix(0,nrow=(p+1),ncol=(p+1))
+spts<-cbind(1:p,2:(p+1))
+P[spts] = lambda[-(p+1)]/v[-(p+1)]
+spts<-cbind(2:(p+1),1:(p)) 
+P[spts] = mu[-1]/v[-1]
+
+
+R<-diag(v)%*%P
+diag(R)<- -v
+I<-diag(1,p+1,p+1)
+```
+
+```{r}
+reps<-100
+T<-2
+m<-100
+times<-seq(0,T,length=m)
+delta<-T/(m-1)
+
+n<-100
+Pdel<-(I + R*delta/n) %^% n
+
+X_all<-matrix(nrow=reps,ncol=m)
+for(r in 1:reps){
+  Xt<-numeric(m)
+  Xt[1]<-1
+  for(i in 2:m){
+    Pr<-Pdel[Xt[i-1]+1,]
+    Xt[i]<-sample(0:p,1,prob=Pr)
+  }
+  X_all[r,] = Xt
+}
+matplot(times,t(X_all),type="l")
+```
+
+
+
+
+
+
+
+
+
+
+
+

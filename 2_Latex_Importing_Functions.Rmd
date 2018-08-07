@@ -1,0 +1,168 @@
+---
+title: "Lecture 1.2"
+author: "Matthew Reimherr"
+date: January 10, 2018
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+---
+
+# Writing Math in RMarkdown
+Writing mathematical formulas in RMarkdown is quite convenient.  It uses a language called Latex for writing out math.  Since this is a coding course, we won't spend a ton of time on this, but a few basics can be quite useful.  If you want to write math "inline", that is, as part of your sentence, then you put your math between two dollar signs: $X = 3$.  If you have longer equations, I recommend using a "begin align" command:
+\begin{align*}
+X = 3 
+\end{align*}
+
+This makes the math its own line. If you get rid of the asterisk then the lines will be numbered.
+\begin{align}
+X = 3 
+\end{align}
+
+You can even write multiple lines at once using a double backslash to start a new line.
+\begin{align*}
+X = 3 \\
+Z+Y = 10
+\end{align*}
+If you don't like how Latex aligns the lines, you can choose your own alignment using an ambersand.
+\begin{align*}
+X = 3 &  \\
+& Z+Y = 10
+\end{align*}
+
+Nearly any mathematical notation you want can be written using Latex.  Search on google for specifics, but here are a few examples.
+\begin{align*}
+\sum_{j=1}^\infty p^{-j}  & = \frac{1}{p} \\
+\int_{-\infty}^\infty \exp\left\{ -\frac{x^2}{2} \right\} \ dx & = \sqrt{2 \pi} \\ 
+\frac{\partial f(x,y)}{\partial x} & = \log( x+ y) \times \sin(2x)
+\end{align*}
+
+Lastly, writing latex within RMarkdown is usually not as pleasent as using a good Latex editor, but it works very nicely when you have to blend both math and R output.
+
+
+# Importing Data
+R is one of the nicer languages for importing data.  Programs like Matlab and SAS can be suprisingly obnoxious when it comes to importing or manipulating data.  There are many different ways of loading different types of data into R.  We will cover some basics, but you have some special type of data, there is usually some function or package that will allow you to load it.
+
+## read.table
+Maybe the most common way of loading in a dataset is via *read.table*, which will load in a file whose different rows correspond to different subjects/units and whose variables are seperated with a *delimiter* such as a comma or tab.  
+```{r}
+nutrient_data<-read.table("nutrient.dat")
+head(nutrient_data)
+```
+The function *head* simply prints the first few rows of your data.  You usually only need this function when carrying out exploratory analysis. This is an example of a dataset that does not contain variable names, so R uses generic names V1, V2, etc.
+
+If you know the variable names you can either add them in when you import or after.
+```{r}
+data_with_names<-read.table("nutrient.dat", 
+  col.names=c("obs", "calc", "iron", "prot", "vita", "vitc"))
+head(data_with_names)
+```
+```{r}
+names(nutrient_data)
+names(nutrient_data)<-c("obs", "calc", "iron", "prot", "vita", "vitc")
+names(nutrient_data)
+```
+*read.table* assumes the values are separated by "white space", but you can force it to be something specific if you are having trouble or just want to be sure. A ".dat" file is a tab delimited file.  I see it most often with SAS.  In contrast, ".csv" stands for "comma-seperated values" as opposed to tabs.  Using things like commas are especially useful for things like missing values.
+```{r}
+data_with_names<-read.table("nutrient.csv", sep=",", 
+  col.names=c("obs", "calc", "iron", "prot", "vita", "vitc"))
+```
+
+If you load a dataset that has the names already in it, be sure to add in the *header=TRUE* option.
+```{r}
+data_without_header<-read.table("nutrient_with_names.csv", sep=",")
+head(data_without_header)
+data_with_header<-read.table("nutrient_with_names.csv", 
+  sep=",", header=TRUE)
+head(data_with_header)
+```
+
+Lastly, other types of data can often be handled, but might require downloading a package.  For example, excel spreadsheets can be loaded in R, but require a package, such as *gdata*. If you don't have this installed, you can install it from the drop down menu or simply typing *install.packages("gdata")* into the console.
+```{r}
+library(gdata)
+data_from_excel<-read.xls("nutrient_with_names.xlsx")
+head(data_from_excel)
+```
+Check out *?read.xls* see the various options you have available.  
+
+
+
+# Saving Data and Results
+After or even during a statistical analysis you often want to save results either just for record keeping or to use as part of some paper, report, etc.  If you need to save results that might be loaded into other programs, I recommend using *write.table()*, which is basically the opposite of *read.table()*.  
+```{r}
+write.table(data_from_excel,file="ex_write_table.csv", sep=",",
+            row.names = FALSE,
+            col.names = TRUE)
+```
+Note that both column and row names are written by default.  I nearly always want column names written, which is the default, but hardly ever want row names.  So the *row.names=FALSE* is useful to include.  
+
+You might also want to save things like plots.  This is increadibly useful for reports when you want to make sure your plot sizes are consistent in case you have to rerun something.  You have your option of formats, for example you could save your plot as a pdf.
+```{r}
+pdf("ex_pdf_plot.pdf",height=6,width=6)
+plot(nutrient_data$calc,nutrient_data$iron)
+dev.off()
+```
+The first command *pdf* tells R to create a pdf with the given size, and then *dev.off* tells R that you are finished writing to that pdf.  We will play with plots more as we go on, there are a lot of ways to customize the look.
+
+Lastly, you might have noticed that R will often ask if you want to save your workspace.  You can do this to save everything (and then just pick up where you left off), but you can also manually do it to save only specific things from R.
+```{r}
+x<-1000
+y<-c(1,3)
+save(nutrient_data, x, y, file="my_R_objects.RData")
+```
+
+Now let's clear out everything and load back our R objects.
+```{r}
+rm(list=ls())
+load("my_R_objects.RData")
+```
+This can be useful for saving things that you know will only be used in R.  Also, note that for very big files, loading an *RData* file is typically much faster than *csv* etc.
+
+
+
+# Functions in R
+You have now seen several examples of functions in R.  Since R is an object-oriented language, you can usually think about code as either creating some data set or applying a function to that dataset.  Let's take a look at an example of a function you will use a lot, *lm*, by typing *?lm* into the console.
+
+Notice that there are many options listed that you might never have used.  Most R functions are like this; they have variables/values that must be input and then they have optional variables.  Those optional variables will be set to default values unless you want to change them.
+```{r}
+reg_iron_on_calc<-lm(nutrient_data$iron~nutrient_data$calc)
+reg_iron_on_calc
+```
+If you print the output from lm it only returns the estimated coefficients.  However, there is a lot of stuff inside that output.
+```{r}
+is.list(reg_iron_on_calc)
+class(reg_iron_on_calc)
+names(reg_iron_on_calc)
+```
+So the output is actually a list, but it has a special attribute with it called its *class*.  This tells R that it is a special kind of output, and if fed into certain functions, the class can actually tell R how to handle that object.  For example:
+```{r}
+summary(reg_iron_on_calc)
+```
+R only knows what to do with your output when put into the summary command because of that class attribute.  Try looking at *?summary* vs *?summary.lm*.  
+
+We can define our own functions as well.  Usually you don't have to worry about the class, you can just use regular lists.  However, if you are writing more complicated code for others to use, then classes can be helpful.  Let's create a simpler version of the *lm* command.
+```{r}
+simple_lm<-function(x,y){
+  SXY<-sum((x-mean(x))*(y-mean(y)))
+  SXX<-sum((x-mean(x))^2)
+  b1<-SXY/SXX
+  b0<-mean(y) - b1*mean(x)
+  return(list(intercept=b0,slope=b1))
+}
+```
+Everything within the function is calculated *locally*, meaning that you can only access things that are returned by the function.
+```{r}
+simple_lm(x=nutrient_data$calc,y=nutrient_data$iron)
+```
+You can add anything that you want to the list to return.  You can also add in things like warnings in case you try enter something you shouldn't.  You can also add a class attribute to your list and then define custom functions for handling those classes.  
+
+
+
+
+
+
+
+
+
+

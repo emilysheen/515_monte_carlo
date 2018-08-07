@@ -1,0 +1,279 @@
+---
+title: "Mixture Models"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+math_includes:
+- \DeclareMathOperator*{\argmax}{arg\,max}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+\newcommand{\Var}{\mathop{\mathrm{Var}}}
+
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\bP}{{\bf{P}}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+\newcommand{\by}{{\bf y}}
+\newcommand{\bY}{{\bf Y}}
+
+
+\newcommand{\vep}{{\varepsilon}}
+
+
+## Hidden Markov Models
+We say that $\{Y_i,Z_i\}$ satisfies a Hidden Markov Model, HMM, if 
+
+1. $\{Z_i: i=1,2,\dots\}$ is homogeneous, discrete time Markov chain with states $\{1,\dots,K\}$.
+2. The $Y_i | Z_i = k$ are idependent of all other $Y_i$ and $Z_i$.
+3. $Y_i$ and $Y_j$ have the same distribution given $Z_i=Z_j$.
+4. The $Y_i$ are observed, while the $Z_i$ are not.
+
+As with clustering, we usually assume that $Y_i | Z_i = k \sim N(\mu_k,\sigma^2_k)$.  Notice that this is very similar to the clustering problem (although, conceptually quite different), it's just that the class labels now form a MC.
+
+So, the parameters of the model are the $\{\mu_k,\sigma^2_k\}$ and the transition probabilities $\bP = \{p_{ij}\}$ where
+\[
+p_{ij} = P(Z_{i+1} = j | Z_i = i).
+\]
+We are also interested in predicting the $Z_i$.  Another thing that might be of interest is actually forcasting future $Y_i$ or $Z_i$.
+
+We can take a page from clustering and use nearly the same priors.  Notice that $\bP$ has $K$ rows of probability distributions.  To put a prior on them, we can again use the Dirichlet distribution.  So, we have that
+\begin{align*}
+& Y_i | \{Z_i=k,\theta \} \sim N(\mu_k, \sigma^2_k) \\
+& \mu_k \sim N(\mu_0,\sigma^2_0) \\
+& \sigma^2_k \sim 1/\sigma^2_k \\
+& \{p_{i1},\dots,p_{iK}\} \sim Dir(K,\alpha) \\
+& P(Z_i = k | Z_{i-1} = j,\theta) = p_{jk}
+\end{align*}
+The major difficulty comes in the form of the marginal conjugate updates when we carry out our Gibbs sampler.  Everything is fairly standard except for sampling the $Z_i$.  Notice that given all other terms, $Z_i$ depends only on $Z_{i-1}$,$Z_{i+1}$, and $Y_i$.  So, we can update the $Z_i$ one at a time using
+\[
+P(Z_i = k_i | Y_i = y, Z_{i-1}=k_{i-1}, Z_{i+1}=k_{i+1},\theta)
+= \frac{P(Z_i = k_i ,Y_i = y, Z_{i-1}=k_{i-1}, Z_{i+1}=k_{i+1}|\theta)}{P( Y_i = y, Z_{i-i}=k_{i-1}, Z_{i+1}=k_{i+1} | \theta)}.
+\]
+While this looks complicated, but we only care about it as a function of $k_i$.  Thus, it is proportional to
+\[
+P(Z_{i+1}=k_{i+1} | Z_{i+i} = k_i,\theta) P(Y_i =y | Z_i = k_i,\theta) P(Z_i = k_i | Z_{i-1} = k_{i-1},\theta)
+= p_{k_{i},k_{i+1}} f_{k_i}(y) p_{k_{i-1},k_{i}}.
+\]
+We can compute the above for all values of $k_i$ and then normalize them to get proper probabilities.  One caveat to the above, is that if $i=1$ or $i=n$, then we are missing one of the neighbors:
+\begin{align*}
+P(Z_1 = k_1 | Y_1 = y, Z_{2}=k_{2},\theta)
+& = \frac{P(Z_1 = k_1 ,Y_1 = y, Z_{2}=k_{2}| \theta)}{P( Y_1 = y, Z_{i-1}=k_{i-1}, Z_{i+1}=k_{i+1} | \theta)} \\
+& \propto p_{k_1,k_2} f_{k_1}(y) P(Z_1=k_1 | \theta).
+\end{align*}
+
+So, you still actually have one thing left and that is the unconditional distribution of $Z_1$.  You can assume some specific distribution (say discrete uniform) or you could suppose that the $Z_1$ comes from the stationary distribution of $P$.  If you move to $i=n$ then 
+\begin{align*}
+P(Z_n = k_n | Y_n = y, Z_{n-1}=k_{n-1},\theta)
+& \propto P(Z_{n-1} = k_{n-1} ,Y_n = y, Z_{n}=k_{n}| \theta) \\
+& \propto p_{k_{n-1},k_n} f_{k_n}(y).
+\end{align*}
+So this one doesn't create much of a problem.  Let's keep track of the stationary distribution while we are it.
+```{r}
+set.seed(515)
+n<-100
+K=3
+
+Z<-numeric(n)
+Y<-numeric(n)
+
+P<-matrix(nrow=K,ncol=K)
+P[1,]<-c(0.7,0.3,0)
+P[2,]<-c(0.15,0.7,0.15)
+P[3,]<-c(0,0.35,0.65)
+stat_true<-eigen(t(P))$vectors[,1]
+stat_true<-stat_true/sum(stat_true)
+Z[1] = 1
+
+for(i in 2:n){
+  p<-P[Z[i-1],]
+  Z[i]<-sample(1:K,1,prob=p)
+}
+
+plot(Z)
+```
+
+```{r}
+mu<-c(-1.5,0,1.5)
+sig2<-c(1/8,1/8,1/8)
+
+Y<-rnorm(n,mean=mu[Z],sd=sqrt(sig2[Z]))
+plot(Y,col=Z)
+```
+
+```{r}
+# Note for n and n_mc large, this code gets slow
+# There are other ways of sampling the HMM which are faster
+# The number of runs here is probably still too low
+library(invgamma)
+n_mc <- 400
+
+mu_c<-c(1,2,3)
+sig2_c<-c(1/2,1/2,1/2)
+Z_c<-sample(1:3,n,replace=TRUE)
+P_c<-matrix(1/3,ncol=3,nrow=3)
+n1_c<-sum(Z_c==1); n2_c<-sum(Z_c==2); n3_c<-sum(Z_c==3)
+Y1_c<-Y[Z_c==1]; Y2_c<-Y[Z_c==2]; Y3_c<-Y[Z_c==3]
+
+stat_c<-eigen(t(P_c))$vectors[,1]
+stat_c<-stat_true/sum(stat_c)
+
+mu_mc<-matrix(nrow=n_mc,ncol=3)
+sig2_mc<-matrix(nrow=n_mc,ncol=3)
+Z_mc<-matrix(nrow=n_mc,ncol=n)
+P_mc<-array(dim=c(n_mc,3,3))
+
+mu_mc[1,] = mu_c
+sig2_mc[1,] = sig2_c
+Z_mc[1,] = Z_c
+P_mc[1,,] = P_c
+
+# Priors Hyper Parameters
+mu0<-0
+sig20<-10
+a_ig<-0
+b_ig<-0
+alpha_0<-c(1,1,1)  # same for each row of P
+
+
+for(i in 2:n_mc){
+  # Mean Update
+  var1_g<-1/(1/sig20 + n1_c/sig2_c[1])
+  mean1_g<-(mu0/sig20 + sum(Y1_c)/sig2_c[1])*var1_g
+  
+  var2_g<-1/(1/sig20 + n2_c/sig2_c[2])
+  mean2_g<-(mu0/sig20 + sum(Y2_c)/sig2_c[2])*var2_g
+  
+  var3_g<-1/(1/sig20 + n3_c/sig2_c[3])
+  mean3_g<-(mu0/sig20 + sum(Y3_c)/sig2_c[3])*var3_g
+  
+  mean_prop<-rnorm(3,c(mean1_g,mean2_g,mean3_g),c(sqrt(var1_g),sqrt(var2_g),sqrt(var3_g)))
+  while(mean_prop[1]>mean_prop[2] | mean_prop[2]>mean_prop[3]){
+      mean_prop<-rnorm(3,c(mean1_g,mean2_g,mean3_g),c(sqrt(var1_g),sqrt(var2_g),sqrt(var3_g)))
+  }
+  mu_c<-mean_prop
+  
+  # Variance Update
+  a1_ig<-a_ig+n1_c/2
+  b1_ig<-b_ig+sum((Y1_c-mu_c[1])^2)/2
+  
+  a2_ig<-a_ig+n2_c/2
+  b2_ig<-b_ig+sum((Y2_c-mu_c[2])^2)/2
+  
+  a3_ig<-a_ig+n3_c/2
+  b3_ig<-b_ig+sum((Y3_c-mu_c[3])^2)/2
+  
+  sig2_c<-rinvgamma(3,shape=c(a1_ig,a2_ig,a3_ig),rate=c(b1_ig,b2_ig,b3_ig)) # Note difference with wiki
+   
+  # Z update
+  for(iz in 1:n){
+    if(iz==1){
+      Ppre <- stat_c
+    }else{
+      Ppre <- P_c[Z_c[iz-1],]
+    }
+    
+    PY<-dnorm(Y[iz],mean=mu_c,sd=sqrt(sig2_c))
+    
+    if(iz==n){
+      Ppost<-c(1,1,1)
+    }else{
+      Ppost<- P_c[,Z_c[iz+1]]
+    }
+    
+    ptmp<-Ppre*PY*Ppost
+    ptmp<-ptmp/sum(ptmp)
+    Z_c[iz] <- sample(1:3,1,prob=ptmp)
+  }
+  
+  n1_c<-sum(Z_c==1)
+  n2_c<-sum(Z_c==2)
+  n3_c<-sum(Z_c==3)
+  Y1_c<-Y[Z_c==1]
+  Y2_c<-Y[Z_c==2]
+  Y3_c<-Y[Z_c==3]
+ 
+  # P Update
+  # 1
+  spts<-which(Z_c[1:(n-1)]==1)
+  Ztmp<-Z_c[spts+1]
+  alpha_g <- alpha_0+summary(factor(Ztmp,levels=1:3)) 
+  E<-rexp(3,rate=1/alpha_g)
+  P_c[1,]<-E/sum(E) 
+  # 2
+  spts<-which(Z_c[1:(n-1)]==2)
+  Ztmp<-Z_c[spts+1]
+  alpha_g <- alpha_0+summary(factor(Ztmp,levels=1:3)) 
+  E<-rexp(3,rate=1/alpha_g)
+  P_c[2,]<-E/sum(E) 
+  # 3
+  spts<-which(Z_c[1:(n-1)]==3)
+  Ztmp<-Z_c[spts+1]
+  alpha_g <- alpha_0+summary(factor(Ztmp,levels=1:3)) 
+  E<-rexp(3,rate=1/alpha_g)
+  P_c[3,]<-E/sum(E)
+  
+  stat_c<-eigen(t(P_c))$vectors[,1]
+  stat_c<-stat_c/sum(stat_c)
+  
+  # Gather updates
+  mu_mc[i,]<-mu_c
+  sig2_mc[i,]<-sig2_c
+  P_mc[i,,]<-P_c
+  Z_mc[i,]<-Z_c
+}
+ 
+
+```
+
+
+```{r}
+
+Zhat<-numeric(n)
+for(i in 1:n){Zhat[i]<-which.max(summary(factor(Z_mc[-(1:100),i],levels=1:3)))[1]}
+
+mytable_B<-table(Zhat,Z)
+
+mytable_B
+(n-sum(diag(mytable_B)))/n
+```
+
+```{r}
+library(mclust)
+myfit<-Mclust(Y,G=3,modelNames="V")
+mytable<-table(myfit$classification,Z)
+
+mytable
+(n-sum(diag(mytable)))/n
+```
+
+```{r}
+mu
+colMeans(mu_mc[-(1:100),])
+apply(mu_mc[-(1:100),],2,FUN=sd)
+```
+
+```{r}
+Phat<-apply(P_mc[-(1:100),,],c(2,3),FUN=mean)
+Phat
+P
+```
+
+
+
+
+
+
+
+
+

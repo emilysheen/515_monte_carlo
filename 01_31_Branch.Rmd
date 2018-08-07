@@ -1,0 +1,40 @@
+---
+title: "Branching Processes"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+## Example 1
+Let's start with a simple setting where each unit can only have a few offspring.
+```{r}
+N<-20
+P<-c(1/4,1/4,1/2)
+J<-0:2
+
+X<-numeric(N+1)
+X[1] = 1
+for(i in 1:N){
+  X[i+1]<-sum(sample(J,size=X[i],prob=P,replace=TRUE))
+}
+plot(0:N,X)
+```
+
+## Example 2
+If we want an infinite number of probabilities, then we need a specific distribution.  Let's play with different parameters.
+```{r}
+N<-100
+lambda<-1
+reps<-100
+  
+X<-matrix(nrow=reps,ncol=N+1)
+X[,1] = 1
+for(j in 1:reps){
+  for(i in 1:N){
+    Offspring<-rpois(n=X[j,i],lambda=lambda)
+    X[j,i+1]<-sum(Offspring)
+  }
+}
+matplot(0:N,t(X),type="l")
+```
+

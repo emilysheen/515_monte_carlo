@@ -1,0 +1,214 @@
+---
+title: "Lecture 3.2"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+
+
+# Arbitrary Bounded Domains
+It is relatively easy to extend this to an arbitrary bounded interval.  Simply notice that
+\[
+\int_a^b e^{-x} \ dx = (b-a) \int_a^b e^{-x} \frac{1}{b-a} dx
+= (b-a) \E[e^{-U}]
+\]
+where $U \sim U(a,b)$.  Pay careful attention to the reweighting that occured.  You are going to do MC, you have to ensure that you are using a proper density, in this case uniform between $(a,b)$
+```{r}
+my_mc_ab<-function(n,a,b){
+  U<-runif(n,min=a,max=b)
+  X<-(b-a)*exp(-U)
+  MC_int <- mean(X)
+  MC_sd <- sd(X)/sqrt(n)
+  return(c(est=MC_int,est_sd=MC_sd))
+}
+exact_calc<-function(a,b){
+  exp(-a)-exp(-b)
+}
+
+my_mc_ab(10000,2,4)
+exact_calc(2,4)
+
+my_mc_ab(10000,29,40)
+exact_calc(29,40)
+```
+
+## Example From Last Time
+Now let's considered unbounded domains. Suppose we wanted to use MC to approximate the CDF of a standard normal
+\[
+\Phi(x) = \int_{-\infty}^x \phi(t) dt = \int_{-\infty}^x \frac{1}{\sqrt{2\pi}} \exp{-t^2/2} \ dt.
+\]
+You can approach this problem in different ways depending on how much information you want to assume.  For example, do you already know it integrates to 1?  Do you know that it is symmetric about 0?  These are obvious things in this case, but other more complex settings they might not be.  
+
+So, let's assume that we know that the answers to these questions are "yes".  We can then break the problem in two depending on whether $x$ is positive or negative. If $x \geq 0$ then we have 
+\[
+\Phi(x) =0.5 + \int_0^x \phi(t) \ dt.
+\]
+If $x \leq 0$ then
+\[
+\Phi(x) = 1 - \Phi(-x) = 1- \left[ 0.5 + \int_0^{-x} \phi(t) dt\right]
+= 0.5 - \int_0^{-x} \phi(t) dt.
+\]
+
+For a fixed $x$, we can use the same uniform trick.  However, you might want to come up with a scheme where you don't need redo eveything for different values of $x$.  This can be done in at least two ways.  The first is by changing the limits of integration to always be between 0 and 1, or to recognize that you can always rescale a $U(0,1)$ to be between any limits you want via the transformation:
+\[
+X = U \times (b-a) + a.
+\]
+Then we have that $X \sim U(a,b)$.
+
+Using the first approach, lets do a change of variable as
+\[
+ y = t/x \Longrightarrow t = yx \quad dt = x dy .
+\]
+Then for $x > 0$ we have
+\[
+\int_{0}^x \frac{1}{\sqrt{2\pi}} \exp\left\{-\frac{t^2}{2} \right\} \ dt
+= \int_0^1 x \frac{1}{\sqrt{2\pi}} \exp\left\{-\frac{y^2 x^2}{2}\right\} \ dy.
+\]
+Now we can simulate standard uniforms, by by changing the $x$ we can get different values of the CDF.
+```{r}
+m=100
+x_all<-seq(-6,6,length=m)
+
+n<-1000
+Y<-runif(n)
+CDF_grid<-numeric(0)
+for(x in x_all){
+  temp<-0
+  xabs<-abs(x)
+  if(x < 0){
+     temp<-0.5-mean(xabs*exp(-xabs^2*Y^2/2)/sqrt(2*pi))
+  }else{
+    temp<-0.5+mean(xabs*exp(-xabs^2*Y^2/2)/sqrt(2*pi))
+  }
+  CDF_grid<-c(CDF_grid,temp)
+}
+plot(x_all,CDF_grid)
+curve(pnorm(x),from=-6,to=6,add=TRUE)
+```
+
+# Importance Sampling
+Another way of doing Monte Carlo integration involves not actually sampling from the target distribution at all.  Instead, it samples from another distribution (much like accept/reject) and then uses a weighted sum to approximate the intergral.
+
+Suppose we want to sample $X \sim f$, but we can only sample from $Y \sim g$.  Then we can actually reweight the sample from $g$ by noticing that
+\[
+\E[h(X)] = \int h(x) f(x) dx = \int \frac{h(x)f(x)}{g(x)} g(x) \ dx = \E\left[ \frac{h(Y)f(Y)}{g(Y)}\right].
+\]
+Thus, we can compute $\E[h(X)]$ using
+\[
+\frac{1}{n}\sum_{i=1}^n \frac{h(Y_i)f(Y_i)}{g(Y_i)}.
+\]
+Of course, for this to work at all, we have to ensure that we are not dividing by zero.  This would can be guarenteed as long as
+\[
+g(y) = 0 \Longrightarrow f(y) = 0,
+\]
+you will sometimes hear this phrased as $f \ll g$ or $f$ is absolutely continuous with respect to $g$.  Basically,you have to ensure that any set that has zero probability under $g$ also has zero probability under $f$ (though the reverse is not important).  In general, this works better the more $g$ and $h$ agree.  If they put weight most of their weight on very different regions, then you will need more samples to get lower standard errors.  It is usually recommended to make sure $g$ has heavier tails than $f$.
+
+## Example 1
+Let's carry out a simple example to see this in action.  Let's estimate the second moment of a normal using importance sampling with a $t$.
+```{r}
+muX<-10
+sigX<-1
+dfY<-10
+n<-1000000
+h<-function(x){x^2}
+
+Y<-rt(n=n,df=dfY)
+Z<-h(Y)*dnorm(Y,mean=muX,sd=sigX)/dt(Y,df=dfY)
+mean(Z); sd(Z)/sqrt(n)
+muX^2+sigX^2 #Truth
+```
+
+Playing around with the df, you see that if the tails aren't heavy enough then the estimate is pretty bad.  Compare this with accept/reject.  For accept/reject, you would be rejecting a lot, where as here your estimates get pretty bad (even the estimated standard errors aren't reliable).  In both cases, you would need more samples to overcome a bad choice for the "base" distribution.
+
+## Example 2
+Now let's consider another example, not specifically related to random variables.  Suppose we want to calculate the integral
+\[
+\int_0^1 \frac{e^{-x}}{1+x^2} dx.
+\]
+Clearly we can use uniform to do a direct Monte Carlo approximation.  Let's consider a few other options.
+\begin{align*}
+& g_0(x) = 1 \qquad 0 \leq x \leq 1 \qquad (\text{uniform}) \\
+& g_1(x) = e^{-x} \qquad x \geq 0 \qquad (\text{exponential rate=1}) \\
+& g_2(x) = \frac{1}{\pi(1+x^2)} \qquad -\infty < x < \infty \qquad (\text{standard Cauchy}) \\
+& g_3(x) = \frac{e^{-x}}{1 - e^{-1}} \qquad 0 \leq x \leq 1 \\
+& g_4(x) = \frac{4}{\pi(1+x^2)} \qquad 0 \leq x \leq 1.
+\end{align*}
+The first three are known distributions in R, while for the last two we will use the inverse cdf method.  Let's compute the necessary inverse CDFs.
+\[
+G_3(x) = \int_0^x \frac{e^{-t}}{1 - e^{-1}}  dt
+= \frac{1-e^{-x}}{1-e^{-1}}.
+\]
+Solving 
+\begin{align*}
+u = \frac{1-e^{-x}}{1-e^{-1}}
+\Longrightarrow x= - \log(1-u(1-e^{-1}))
+\end{align*}
+So $G_3^{-1}(u) = - \log(1-u(1-e^{-1}))$.  Turnig to the next CDF we have
+\begin{align*}
+G_4(x) = \int_0^x \frac{4}{\pi(1+t^2)} dt
+= \frac{4}{\pi} \left[ \tan^{-1}(t) \right]_{t=0}^x
+=\frac{4}{\pi} \tan^{-1}(x).
+\end{align*}
+We then have that $G_4^{-1}(u) = \tan((\pi u)/4)$.
+
+Now let's take a look at the importance sampling for each.
+```{r}
+n<-10000
+h<-function(x){exp(-x)/(1+x^2)*(x>0)*(x<1)}
+theta<-numeric(5)
+theta_se<-numeric(5)
+
+# Uniform
+Y<-runif(n)
+Z<-h(Y)*dunif(Y)/dunif(Y)
+theta[1]<-mean(Z)
+theta_se[1]<-sd(Z)/sqrt(n)
+
+# Exponential
+Y<-rexp(n)
+Z<-h(Y)*dunif(Y)/dexp(Y)
+theta[2]<-mean(Z)
+theta_se[2]<-sd(Z)/sqrt(n)
+
+# Cauchy
+Y<-rcauchy(n)
+Z<-h(Y)*dunif(Y)/dcauchy(Y)
+theta[3]<-mean(Z,na.rm=TRUE)
+theta_se[3]<-sd(Z,na.rm=TRUE)/sqrt(n-sum(is.na(Z)))
+sum(is.na(Z))
+
+# G3
+U<-runif(n)
+Y<- -log(1-U*(1-exp(-1)))
+g3<-function(x){exp(-x)/(1-exp(-1))*(x>0)*(x<1)}
+Z<-h(Y)*dunif(Y)/g3(Y)
+theta[4]<-mean(Z)
+theta_se[4]<-sd(Z)/sqrt(n)
+
+# G4
+U<-runif(n)
+Y<- tan(U*pi/4)
+g4<-function(x){4/(pi*(1+x^2))*(x>0)*(x<1)}
+Z<-h(Y)*dunif(Y)/g4(Y)
+theta[5]<-mean(Z)
+theta_se[5]<-sd(Z)/sqrt(n)
+
+# Results
+method<-c("Unif","Exp","Cauchy","Trunc Exp", "Trunc Cauchy")
+data.frame(theta=theta,SE=theta_se,method=method)
+
+curve(h,from=0,to=1)
+```
+
+
+

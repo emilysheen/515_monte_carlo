@@ -1,0 +1,198 @@
+---
+title: "More Accept/Reject"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+---
+
+Recall that for accept/reject we have a target $f(x)$ distribution and a proposal distribution, $g(x)$.  We have to find a constant $M$ such that
+\[
+\sup_x \frac{f(x)}{g(x)} \leq M < \infty.
+\]
+We can then generate proposals from $g$ and accept them with probability $f(x)/[g(x) M ]$.  Every value we accept will be distributed as $f$.
+
+
+## Example
+Let's do another simple example to illustrate the problem of choosing a poor proposal distribuiton.  Let
+\[
+f \sim N(\mu, \sigma^2).
+\]
+Let's draw proposals from
+\[
+g \sim t_{df}.
+\]
+Let's examine the ratio.
+```{r}
+mu<-1
+sigma<-1
+df<-3
+h<-function(x){dnorm(x,mean=mu,sd=sigma)/dt(x,df=df)}
+par(mfrow=c(1,2))
+curve(dnorm(x,mean=mu,sd=sigma),from= -3,to=6)
+curve(dt(x,df=df),from= -3,to=6, add=TRUE,col="blue",lty=2)
+curve(h,from=-3,to=6)
+```
+
+Since we have explicit functions, we can actually use *optimize* or *optim* to find $M$.  Though, graphically we can see that something like $M=4$ would work.
+```{r}
+my_opt<-optim(par=0,fn=h,control=list(fnscale=-1),method="CG")
+my_opt
+M<-my_opt$value
+```
+Now let's do the accept/reject.
+```{r}
+n<-1000
+current_n<-0
+X_all<-numeric(n)
+reps<-0
+while(current_n<=n){
+  reps<-reps+1
+  X<-rt(1,df=df)
+  p<-h(X)/M
+  U<-runif(1)
+  if(U<=p){
+    X_all[current_n+1]=X
+    current_n = current_n + 1
+  }
+}
+reps
+```
+Now let's check the distribution.
+```{r}
+hist(X_all,freq=FALSE)
+mydens<-density(X_all,bw="SJ")
+points(mydens$x,mydens$y,col="red",typ="l")
+curve(dnorm(x,mean=mu,sd=sigma),col="blue",add=TRUE)
+```
+So, what can you do with this sample?  Well...basically anything you want.
+```{r}
+mean(X_all)
+var(X_all)
+quantile(X_all,prob=c(0.025,0.975))
+```
+
+So, lets just see what happens when the proposal and target are too different.
+```{r}
+mu<-2
+sigma<-1
+df<-7
+h<-function(x){dnorm(x,mean=mu,sd=sigma)/dt(x,df=df)}
+# If you start in a bad spot then you can easily hit a flat region and get stuck.
+M<-optim(par=mu,fn=h,control=list(fnscale=-1,reltol=1e-20),method="BFGS")$value
+
+n<-100
+current_n<-0
+X_all<-numeric(n)
+reps<-0
+while(current_n<=n){
+  reps<-reps+1
+  X<-rt(1,df=df)
+  p<-h(X)/M
+  U<-runif(1)
+  if(U<=p){
+    X_all[current_n+1]=X
+    current_n = current_n + 1
+  }
+}
+reps
+M; 1/M
+```
+
+
+
+
+### Real(er) Problem
+Now, let's actually tackle something closer to a real problem here.  Recall that you don't actually need to know the constants in the target distribution to pull off accept/reject, however *M* is no longer interpretable.  So consider the following setup.
+$X_1,\dots,X_n$ are iid $N(\mu, \sigma^2)$, however, assume that these parameters are actually random with $\mu \sim t_{1}$ and $\sigma \sim |t_1|$, but independent of eachother.  We would like to obtain a conditional distribution of $\mu$ and $\sigma^2$ given the data $X_1,\dots,X_n$.
+\[
+prior: \pi(\mu,\sigma) =  \pi^{-1}(1+\mu^2)^{-1} 2 \pi^{-1}(1+\sigma^2)^{-1} 1_{\sigma \geq 0}.
+\]
+\[
+model: f(x|\mu,\sigma) = \frac{1}{\sqrt{2\pi \sigma^2}} \exp\left\{ -\frac{(x-\mu)^2}{2\sigma^2} \right\}.
+\]
+\[
+posterior: f(\mu,\sigma | X_1,\dots,X_n)
+\propto \sigma^{-n} \exp\left\{ -\sum_{i=1}^n \frac{(X_i-\mu)^2}{2\sigma^2} \right\} (1+\mu^2)^{-1} (1+\sigma^2)^{-1} 1_{\sigma \geq 0} 
+\]
+So, what we want is to be able to sample from what we are calling the posterior (more on this after your midterm).
+So, can we use the prior for proposals?  Notice that using the prior for proposals actually kills off a few terms in the posterior.  Instead of looking at the maximum of the ratio, lets look at the minimum of the negative log of the ratio.
+```{r}
+mu0<-1
+sig0<-3
+n<-10
+X<-rnorm(n,mean=mu0,sd=sig0)
+
+hl<-function(m,s){
+  -log(s^(-n)*exp( - (sum(X^2) - 2*sum(X)*m + n*m^2)/(2*s^2))*pi^2/2)
+}
+
+curve(hl(x,1),from=0,to=2)
+curve(hl(x,m=1),from=1,to=6)
+
+hlv<-function(y){
+  -log(y[2]^(-n)*exp( - (sum(X^2) - 2*sum(X)*y[1] + n*y[1]^2)/(2*y[2]^2))*pi^2/2)
+}
+optim(par=c(1,1),fn=hlv)
+mean(X);sd(X)
+```
+
+So, we know where the maximum occurs.  
+```{r}
+m_mx<-mean(X); s_mx<-sd(X)
+M<-s_mx^(-n)*exp( - (sum(X^2) - 2*sum(X)*m_mx + n*m_mx^2)/(2*s_mx^2))*pi^2/2
+M
+```
+It is hard to say how bad this is going to be since we ignored constants.
+```{r}
+accept_fun<-function(m,s){
+  (s^(-n)*exp( - (sum(X^2) - 2*sum(X)*m + n*m^2)/(2*s^2))*pi^2/2)/M
+}
+```
+
+```{r}
+reps<-1000
+current_reps<-0
+total_reps<-0
+mu_all<-numeric(reps)
+sig_all<-numeric(reps)
+while(current_reps<=reps){
+  total_reps<-total_reps+1
+  mu_prop<-rt(1,df=1)
+  sig_prop<-abs(rt(1,df=1))
+  p<-accept_fun(mu_prop,sig_prop)
+  U<-runif(1)
+  if(U<=p){
+    current_reps<-current_reps+1
+    mu_all[current_reps]=mu_prop
+    sig_all[current_reps]=sig_prop
+  }
+}
+total_reps
+```
+Now let's take a look at the results.  We can plot the distributions, the truth, as well as 95\% probability intervals.
+```{r}
+par(mfrow=c(1,2))
+hist(mu_all)
+abline(v=mu0,col="red")
+abline(v=quantile(mu_all,probs=c(0.025,0.975)),col="blue",lty=2)
+hist(sig_all)
+abline(v=sig0,col="red")
+abline(v=quantile(sig_all,probs=c(0.025,0.975)),col="blue",lty=2)
+```
+
+
+
+
+
+
+
+
+
+

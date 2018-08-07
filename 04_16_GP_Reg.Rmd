@@ -1,0 +1,214 @@
+---
+title: "Gaussian Process Regression"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+math_includes:
+- \DeclareMathOperator*{\argmax}{arg\,max}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+\newcommand{\Var}{\mathop{\mathrm{Var}}}
+
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+\newcommand{\by}{{\bf y}}
+\newcommand{\bY}{{\bf Y}}
+
+
+\newcommand{\vep}{{\varepsilon}}
+
+
+## Nonparametric Smoothing
+
+Assume we have data $Y_i \in \mbR$ and $X_i \in [0,1]$ that satisfies
+\[
+Y_i = f(X_i) + \vep_i,
+\]
+where $\vep_i$ are iid $N(0,\sigma^2)$.  The function $f$ is unknown and we don't assuming anything about it other than it is "smooth".  There are a number of classic ways to estimate $f$, including splines, local polynomial regression, RKHS smoothing, etc.  We can also estimate it using more of a Bayesian approach.  To use a Bayesian approach we have to put a prior down on $f$.  This simplest way to do this is to use what's called a Gaussian process.  
+
+**Definition:**   *We say that $\{Z(t): t \in \mbR\}$ is a Gaussian process with mean function $mu(t)$ and covariance function $C(t,s)$ if for any $t_1,\dots,t_n$ in $\mbR$ we have that  $Z(t_1),\dots,Z(t_n)$ is multivariate normal with mean*
+\[
+\left(\begin{matrix}
+\mu(t_1) \\
+\vdots \\
+\mu(t_n)
+\end{matrix}\right)
+\]
+*and covariance matrix*
+\[
+\left(
+\begin{matrix}
+C(t_1,t_1) & \dots & C(t_1, t_n) \\
+\vdots & \ddots & \vdots \\
+C(t_n,t_1) & \dots & C(t_n,t_n)
+\end{matrix}
+\right)
+\]
+
+ 
+ 
+ 
+ 
+So, the prior we can put down on $f$ can be a Guassian process.  To make this simpler, let's suppose that $X_i = (i-1)/(n-1)$ and that we only want to estimate $f$ at the $X_i$.  
+
+```{r}
+library(MASS)
+true_f<-function(t){4*(t - 2*t^2 + t^3)}
+true_sig2<-.1
+
+n<-100
+t<-seq(0,1,length=n)
+fgrid<-true_f(t)
+
+Y<-fgrid+rnorm(n,mean=0,sd=sqrt(true_sig2))
+
+curve(true_f,from=0,to=1,ylim=c(min(Y),max(Y)))
+points(t,Y)
+```
+
+```{r}
+mu_prior<-rep(0,times=n)
+rng_par<-10
+d<-outer(t,t,FUN="-")
+Sig_prior<-(1+rng_par*d)*exp(-rng_par*abs(d)) # Matern
+#Sig_prior<-exp(-rng_par*abs(d)) # exp
+Sig_p_inv<-solve(Sig_prior)
+d_Sig<-det(Sig_prior)
+
+n_mc<-1000
+f_mc<- matrix(nrow=n_mc,ncol=n)
+
+f_mc[1,]<-0
+f_cur<-rep(0,times=n)
+
+sig2_mc<-numeric(n)
+sig2_cur<-sd(Y)
+sig2_mc[1] = sig2_cur
+
+
+
+post<-function(x,y){
+  lik<-dnorm(Y,mean=x,sd=sqrt(y))
+  prior<-exp(-t(x)%*%Sig_p_inv%*%(x)/2)*(1/y)
+  return(prod(lik)*prior)
+}
+
+rng<-0.1
+for(i in 2:n_mc){
+  f_prop<-mvrnorm(1,mu=f_cur,Sigma=rng*Sig_prior)
+  rho<-post(f_prop,sig2_cur)/post(f_cur,sig2_cur)
+  rho<-min(rho,1)
+  if(runif(1)<rho){
+    f_cur<-f_prop
+  }
+  
+  sig2_prop<-sig2_cur+runif(1,min=-rng,max=rng)
+  if(sig2_prop>0){
+    rho<-post(f_cur,sig2_prop)/post(f_cur,sig2_cur)
+    rho<-min(rho,1)
+    if(runif(1)<rho){sig2_cur<-sig2_prop}
+  }
+  f_mc[i,] = f_cur
+  sig2_mc[i] = sig2_cur
+}
+
+f_mc<-f_mc[-(1:100),]
+```
+
+```{r}
+curve(true_f,from=0,to=1,ylim=c(min(Y),max(Y)))
+points(t,Y)
+points(t,colMeans(f_mc),col="red",type="l")
+```
+
+Great, but this still has most of the issues from classic nonparametric regression.  The range parameter in the prior acts as a type of smoothing parameter.
+
+
+
+
+```{r,warning=FALSE}
+mu_prior<-rep(0,times=n)
+d<-outer(t,t,FUN="-")
+
+n_mc<-1000
+f_mc<- matrix(nrow=n_mc,ncol=n)
+
+f_mc[1,]<-0
+f_cur<-rep(0,times=n)
+
+sig2_mc<-numeric(n)
+sig2_cur<-sd(Y)
+sig2_mc[1] = sig2_cur
+
+rng_par_mc<-numeric(n)
+rng_par_c<-1
+rng_par_mc[1] = rng_par_c
+
+Sig_fun<-function(r){(1+r*d)*exp(-r*abs(d))}
+#Sig_fun<-function(r){exp(-r*abs(d))}
+Sig_prior<-Sig_fun(rng_par_c)
+
+post<-function(x,y,S,r){
+  lik<-dnorm(Y,mean=x,sd=sqrt(y))
+  prior<-exp(-t(x)%*%solve(S,x)/2)*(1/y)*(1/r)
+  return(prod(lik)*prior)
+}
+
+rng<-0.1
+for(i in 2:n_mc){
+  f_prop<-mvrnorm(1,mu=f_cur,Sigma=rng*Sig_prior)
+  rho<-post(f_prop,sig2_cur,Sig_prior,rng_par_c)/post(f_cur,sig2_cur,Sig_prior,rng_par_c)
+  rho<-min(rho,1)
+  if(runif(1)<rho){
+    f_cur<-f_prop
+  }
+  
+  sig2_prop<-sig2_cur+runif(1,min=-rng,max=rng)
+  if(sig2_prop>0){
+    rho<-post(f_cur,sig2_prop,Sig_prior,rng_par_c)/post(f_cur,sig2_cur,Sig_prior,rng_par_c)
+    rho<-min(rho,1)
+    if(runif(1)<rho){sig2_cur<-sig2_prop}
+  }
+  
+  rng_par_prop<-rng_par_c+runif(1,min=-rng,max=rng)
+  if(rng_par_prop>0){
+    #Sig_prop<-(1+rng_par_prop*d)*exp(-rng_par_prop*abs(d)) # Matern
+    Sig_prop<-Sig_fun(rng_par_prop)
+    rho<-post(f_cur,sig2_prop,Sig_prop,rng_par_prop)/post(f_cur,sig2_cur,Sig_prior,rng_par_c)
+    if(is.na(rho)){rho=0}
+    rho<-min(rho,1)
+    if(runif(1)<rho){
+      rng_par_c=rng_par_prop
+      Sig_prior=Sig_prop
+    }
+  }
+  
+  f_mc[i,] = f_cur
+  sig2_mc[i] = sig2_cur
+  rng_par_mc[i] = rng_par_c
+}
+
+f_mc<-f_mc[-(1:100),]
+```
+
+```{r}
+curve(true_f,from=0,to=1,ylim=c(min(Y),max(Y)))
+points(t,Y)
+points(t,colMeans(f_mc),col="red",type="l")
+CI<-apply(X=f_mc,2,function(x) quantile(x,probs=c(0.025,0.975)))
+matplot(t,t(CI),type="l",lty=2,col="red",add=TRUE)
+```
+
+

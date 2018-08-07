@@ -1,0 +1,110 @@
+---
+title: "Conjugate Priors - Normal Setting"
+author: "Matthew Reimherr"
+math_includes: \DeclareMathOperator*{\argmax}{arg\,max}
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+
+
+## Full Normal Setting
+
+Recall the conjugate prior is given by
+\begin{align*}
+\pi(\sigma^2) \sim InvGamma(\alpha,\beta) \\
+\pi(\mu | \sigma^2) \sim N(\mu_0, \sigma^2/n_0) \\
+p(x | \mu, \sigma^2) \sim N(\mu, \sigma^2).
+\end{align*}
+
+So the posterior updates are
+\begin{align*}
+\alpha & \to \alpha + n/2 \\
+\beta & \to \beta + \frac{1}{2} \sum (X_i - \bar X)^2 + \frac{n_0 n}{2(n+n_0)} (\bar X -\mu_0)^2 \\
+\mu_0 & \to \frac{n}{n + n_0 } \bar X + \frac{n_0}{n+n_0} \mu_0 \\ 
+n_0 & \to n_0 + n.
+\end{align*}
+Notice that we have set things up in a fairly nice way.  Namely, the posterior still has this conditional form, but the updates don't; the updates for hyper parameters are fairly straight forward.  So, this means that
+\[
+p(\sigma^2 | X_1,\dots,X_n) \sim InvGamma\left(\alpha + n/2,\beta + \frac{1}{2} \sum (X_i - \bar X)^2 + \frac{n_0 n}{2(n+n_0)} (\bar X -\mu_0)^2 \right)
+\]
+and
+\[
+p(\mu|\sigma^2,X_1,\dots,X_n)
+\sim N\left(
+\frac{n}{n + n_0 } \bar X + \frac{n_0}{n+n_0} \mu_0 ,
+\frac{\sigma^2}{n+n_0}
+\right).
+\]
+In general, this joint distribution might be easy(ish) to write down, but inference might be hard.  However, we can still use Montel Carlo; we can draw from the posterior and then use it to construct confidence/credible intervals (of whatever else we might want).
+
+### Example
+Consider the *sleep* dataset, which is in the *datasets* package in *R*.  This data measures the average increase in sleep (in hours) for 10 patients using two different drugs.  Let's find posterior distributions for the difference between the two groups (each patient is in both group).
+```{r}
+X<-sleep$extra[sleep$group==1] - sleep$extra[sleep$group==2]
+n<-length(X)
+```
+We will use fairly weak priors.
+```{r}
+# Easier to inrpret priors in terms of means and variances
+# Inversegamma prior for variance:
+prior_var_mean<-1
+prior_var_var<-10
+alpha0<- 2 + prior_var_mean^2/prior_var_var
+beta0<- prior_var_mean*(alpha0-1)
+
+# Normal Prior for mean, given variance
+mu0<-0
+n0<-1
+
+# Posterior
+n_post<-n+n0
+mu0_post<-(n/n_post)*mean(X) + (n0/n_post)*mu0
+alpha_post<-alpha0+(1/2)*n
+beta_post<-beta0 + (1/2)*sum((X-mean(X))^2)+(n*n0/(2*n_post))*(mean(X)-mu0)^2
+```
+So, we have the posterior paramters, but to do the MC draws, we have to sample the variance before the mean.
+```{r}
+MC_draws<-100000
+sig2_post_draws<-1/rgamma(MC_draws,shape=alpha_post,scale=1/beta_post)
+hist(sig2_post_draws)
+abline(v=var(X),col="red")
+```
+```{r}
+mu_post_draws<-rnorm(MC_draws,mean=mu0_post,sd=sqrt(sig2_post_draws/n_post))
+hist(mu_post_draws)
+abline(v=mean(X),col="red")
+```
+So, we can use both draws to construct confidence/credible intervals for the parameters.
+```{r}
+alpha<-0.05
+quantile(mu_post_draws,probs=c(alpha/2,1-alpha/2))
+quantile(sig2_post_draws,probs=c(alpha/2,1-alpha/2))
+```
+Let's compare this to a standard t interval.
+```{r}
+t.test(X)
+```
+Conclusions are the same, although the Bayesian interval doesn't go as far to the left (about same on right). 
+
+
+
+
+
+
+
+

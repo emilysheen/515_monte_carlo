@@ -1,0 +1,248 @@
+---
+title: "Numerical Illustrations"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+Let's go through a few examples to see how you would calculate things in R.  First let's define a finite state MC.
+
+## Ergodic Chain
+
+```{r}
+# Define conditional probabilities
+P0<-c(0, 1, 0, 0, 0)
+P1<-c(1/2,0,1/2,0,0)
+P2<-c(1/2,0,0,1/2,0)
+P3<-c(1/2,0,0,0,1/2)
+P4<-c(1,0,0,0,0)
+P<-rbind(P0,P1,P2,P3,P4)
+P
+rowSums(P)
+```
+First, let's compute some multistep probabilities.  R does not have a "matrix power" function in its base installation, but you can install packages to give this option (e.g. *expm*)
+```{r}
+# Two Step
+P%*%P
+
+# Four Step
+P%*%P%*%P%*%P
+
+# General power
+mpow<-function(X,m){
+  temp<-X
+  if(m >2){
+    for(i in 2:m){
+      temp<-temp%*%X
+    }
+  }
+  return(temp)
+}
+
+mpow(P,100)
+```
+Notice that the $P^m$ converges in each row.  This isn't a coincidence.  Since this is an ergodic chain, $P(X_n = j) \to \pi_j$ regardless of the starting value of the chain.  Let's verify that what we are seeing above is really the stationary distribution.
+```{r}
+# Method 1: Eigenvector with eval 1
+# R by default calculates right eigenvectors
+# but we want from the left, so we use transpose.
+Eig_P<-eigen(t(P)) 
+Eig_P$values
+```
+Notice that since $P$ isn't symmetric, it can have imaginary eigenvalues.  What we are looking for is the eigenvalue of 1, which is the first.
+```{r}
+v1<-Eig_P$vectors[,1]
+v1
+```
+Notice that this returned all negative values with imaginary components.  We have to clean this up a bit.
+```{r}
+pi_stat<-Re(v1) # get rid of imaginary values
+pi_stat<-pi_stat/sum(pi_stat) # scale to sum to 1
+
+rbind(
+round(pi_stat,digits=5),
+round(mpow(P,2)[1,],digits=5),
+round(mpow(P,10)[1,],digits=5),
+round(mpow(P,20)[1,],digits=5),
+round(mpow(P,100)[1,],digits=5))
+```
+
+Let's also go through a simulation scheme one more time.  One of the most annoying aspects is that notationally everything starts with "0", but that isn't how we program.
+```{r}
+n<-100
+X<-numeric(n+1)
+X[1] = 0
+for(i in 2:(n+1)){
+  prob<-P[X[i-1]+1,]
+  X[i] = sample(0:4,size=1,prob=prob)
+}
+plot(0:n,X)
+summary(as.factor(X))/length(X)
+pi_stat
+```
+
+
+
+
+## Periodic Chain
+
+```{r}
+# Define conditional probabilities
+P0<-c(0, 1, 0, 0, 0)
+P1<-c(1/2,0,1/2,0,0)
+P2<-c(0,1/2,0,1/2,0)
+P3<-c(1/2,0,0,0,1/2)
+P4<-c(0,1,0,0,0)
+P<-rbind(P0,P1,P2,P3,P4)
+P
+rowSums(P)
+```
+
+```{r}
+# Two Step
+P%*%P
+
+# Four Step
+P%*%P%*%P%*%P
+
+# General power
+mpow<-function(X,m){
+  temp<-X
+  if(m >2){
+    for(i in 2:m){
+      temp<-temp%*%X
+    }
+  }
+  return(temp)
+}
+
+mpow(P,100)
+mpow(P,101)
+```
+
+```{r}
+# Method 1: Eigenvector with eval 1
+# R by default calculates right eigenvectors
+# but we want from the left, so we use transpose.
+Eig_P<-eigen(t(P)) 
+Eig_P$values
+```
+Notice that there is a 1 and -1 eigenvalue.
+```{r}
+v2<-Eig_P$vectors[,2]
+v2
+```
+
+```{r}
+pi_stat<-Re(v2) # get rid of imaginary values
+pi_stat<-pi_stat/sum(pi_stat) # scale to sum to 1
+
+rbind(
+round(pi_stat,digits=5),
+round(mpow(P,100)[1,],digits=5),
+round(mpow(P,101)[1,],digits=5))
+```
+
+
+```{r}
+n<-1000
+X<-numeric(n+1)
+X[1] = 0
+for(i in 2:(n+1)){
+  prob<-P[X[i-1]+1,]
+  X[i] = sample(0:4,size=1,prob=prob)
+}
+summary(as.factor(X))/length(X)
+pi_stat
+```
+
+## Reducible Chain
+Lastly, we look at a chain that is actually reducible in the sense that it has more than one class.
+
+```{r}
+# Define conditional probabilities
+P0<-c(0, 1/2, 0, 1/2, 0)
+P1<-c(0,1/2,1/2,0,0)
+P2<-c(0,1/2,1/2,0,0)
+P3<-c(0,0,0,1/2,1/2)
+P4<-c(0,0,0,1/2,1/2)
+P<-rbind(P0,P1,P2,P3,P4)
+P
+rowSums(P)
+```
+
+```{r}
+# Two Step
+P%*%P
+
+# Four Step
+P%*%P%*%P%*%P
+
+# General power
+mpow<-function(X,m){
+  temp<-X
+  if(m >2){
+    for(i in 2:m){
+      temp<-temp%*%X
+    }
+  }
+  return(temp)
+}
+
+mpow(P,100)
+mpow(P,101)
+```
+
+```{r}
+# Method 1: Eigenvector with eval 1
+# R by default calculates right eigenvectors
+# but we want from the left, so we use transpose.
+Eig_P<-eigen(t(P)) 
+Eig_P$values
+```
+
+```{r}
+v1<-Eig_P$vectors[,1]
+v2<-Eig_P$vectors[,2]
+v1
+v2
+```
+Notice that there is more than one vector that has an eigenvalue of 1.
+```{r}
+pi_stat1<-Re(v1) # get rid of imaginary values
+pi_stat1<-pi_stat1/sum(pi_stat1) # scale to sum to 1
+
+pi_stat2<-Re(v2) # get rid of imaginary values
+pi_stat2<-pi_stat2/sum(pi_stat2) # scale to sum to 1
+
+rbind(
+round(pi_stat1,digits=5),
+round(pi_stat2,digits=5),
+round(mpow(P,100)[1,],digits=5))
+```
+
+Lets run the simulation scheme now a few times
+```{r}
+n<-100
+X<-numeric(n+1)
+X[1] = 0
+for(i in 2:(n+1)){
+  prob<-P[X[i-1]+1,]
+  X[i] = sample(0:4,size=1,prob=prob)
+}
+plot(0:n,X,ylim=c(0,4))
+summary(factor(X,levels=0:4))/length(X)
+pi_stat1
+pi_stat2
+```
+
+
+Just to summarize a few points:
+
+* Ergodic chains will converge to the stationary distribution $\pi$.  The powers of their transition matrix will converge.  This stationary distribution is unique.
+* Periodic chains will not converge in distribution as they can only visit certain states on certain steps.  If they are irreducible and positive reccurent the long run proportion of time spent in each state will still converge to $\pi$, which is still unique and corresponds to an eigenvalue of 1 for $P$ (from the left).
+* Reducible chains can converge in distribution, but the distribution need not be unique.  Multiple stationary distributions can occur (or might not exist).  The long run proportion of time spent in each state may (or may not) converge to $\pi$, but $\pi$ need not be unique.  There might be multiple solutions which could depend on where the chain is started (or could even be chosen at random).
+
+
+
+

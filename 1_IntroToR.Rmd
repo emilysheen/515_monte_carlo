@@ -1,0 +1,167 @@
+---
+title: "Lecture 1.1"
+author: "Matthew Reimherr"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+  word_document: default
+---
+
+After covering the syllabus, let's take a look at R and RMarkdown using the program RStudio.  These tools are all free, so you can install them on your home machine.  Or if you prefer, you can use our RStudio server: https://rstudio.science.psu.edu/ to access RStudio via a web browser.  Lastly, all of the school computers will have R and RStudio installed, though I don't have as much control over fixing bugs as I do with the server.  
+
+R is statistical program that is flexible, powerful, and free.  You can download R as well as find a number of resources at http://cran.r-project.org.  It is not a point and click software like Minitab, but its added flexibility is well worth it.  Note that statisticians at google program in R and python.  
+
+I advise programming in R via RStudio, which is a fancier version than the base R installation.  When you code in R you can simply write code via a new *R script* or you can use *R Notebooks*, which are very convenient ways of both writing and coding at the same time. In R Notebooks, you seperate your code into *chunks* that you can compile one at a time and even preview the output.  You can also run the entire script and output either an html file, pdf file, or word file.
+
+
+# Objects/Data in R
+R is an *object oriented* programming language, meaning that you form objects (data) and carry out various calculations/manipulations on those objects.  So the first thing to do is to understand the types of objects that are available to you.
+
+## Scalars and Vectors
+The first and most commonly encountered objects in R are scalars and vectors.  These are defined using "=" or "->".  The "->" is considered better coding edicate, but either is fine.
+```{r}
+x <- 3
+y = 3
+x
+y
+```
+
+For those that are brand new to R consider each of the lines seperately above.  You could type those into the R conside directly, but by hitting the arrow button in the top corner of the code chunk, it will compile all 4 lines for you at once.  In the first two lines we created two new objects in R, one called "x" and the other called "y". In th next two lines we simply print the values.  Take a look at the top right panel ("Environment"), you can see a list of all of the objects that you have created.
+
+You can give your objects any name that you like
+```{r}
+happy<-10
+super_cool_name<-3
+```
+It is good practice to give your objects somewhat descriptive names, so that you don't have to remind yourself (or me/TA) what the objects are for.  There are a few rules to keep in mind when naming objects.
+
+* Names are case sensitive.  FYI, distinguishing lower/uppercase X can be a huge pain.
+* You can use numbers, periods, and underscores in your names
+* Names must start with a letter or period (not a number/underscore)
+```{r}
+X=3
+x=3
+l=1
+
+my_vector8<-1
+my.vector9<-1
+```
+In general, I advise to use underscores heavily in your names as they make code easier to read.  I advise against using periods, since they are often used for other things in different contexts or pograms (think .pdf or .doc).
+
+We have only defined objects that hold single numbers at this point.  However, we can also define vectors of numbers using "c()", for "combine".
+```{r}
+this_is_a_vector<-c(1,3,7)
+X<-c(10,4)
+this_is_a_vector
+X
+```
+There are also ways of quickly defining longer vectors or empty vectors
+```{r}
+empty_vector<-numeric(10)
+empty_vector
+
+another_empty<-vector(mode="numeric",length=10)
+another_empty
+
+not_empty<-1:10
+not_empty
+
+my_seq<-seq(from=1,to=10,length=20)
+my_seq
+
+my_seq2<-seq(from=1,to=10,by=pi)
+my_seq2
+```
+The above code involved using *functions*, more on this later.
+
+You can subset vectors in a variety of ways, some more convenient than others depending on the context.
+```{r}
+full_vec<-seq(2,10,by=2)
+full_vec
+
+full_vec[1]
+full_vec[c(1,2)]
+full_vec[c(2,4)]
+
+full_vec[c(TRUE,FALSE,TRUE,FALSE,TRUE)]
+```
+Note that *TRUE* and *FALSE* in R are special terms.  In the above you can use them to tell R TRUE=include value or FALSE=don't include.  This is especially useful when you want to subset based on some criteria.
+```{r}
+random_numbers<-sample(1:4,size=10,replace=TRUE)
+random_numbers>2
+random_numbers[random_numbers>2]
+random_numbers==2
+random_numbers[random_numbers==2]
+```
+
+## Matrices and Dataframes
+While you will use scalars/vectors a lot, most data will come with multiple variables. A matrix in R is basically the same as a vector, but you now have two dimensions for subsetting.  However, all values in a matrix must be of the same type.
+```{r}
+matrix_of_numbers<-matrix(1:6,nrow=2,ncol=3)
+matrix_of_numbers
+matrix_of_numbers[1,] #takes entire first row
+matrix_of_numbers[1,c(1,2)]
+matrix_of_numbers[2,3]
+```
+Compared the above with the code below.
+```{r}
+matrix_of_strings<-matrix(c(1,'hat','blue',3),nrow=2,ncol=2)
+matrix_of_strings
+```
+Notice that the numbers have quotes around them, which means that R views them as character strings, not as actual numbers.
+```{r}
+matrix_of_numbers[1,1] = "cat"
+matrix_of_numbers
+```
+By replacing one number with a character string, R converted the entire matrix of values into strings.
+
+So matrices are nice, but generally only useful for large collections of related numbers (imagine measuring the same thing over time and space).  For handling multiple types of variables, it is useful to turn to dataframes.
+
+```{r}
+number_vec<-1:5
+char_vec<-c("red","blue","green","green","blue")
+mydataframe<-data.frame(number_vec,char_vec)
+mydataframe
+```
+You can include as many variables as you want, each will be a different column
+```{r}
+food_vec<-c("apple","sandwich","apple","cookie","sandwich")
+my_2nd_dataframe<-data.frame(number_vec,char_vec,food_vec)
+my_2nd_dataframe
+my_3rd_dataframe<-data.frame(mydataframe,food_vec)
+my_3rd_dataframe
+```
+R is shokingly forgiving with how you call on functions.  Many times R will try to figure out what you are asking even if the syntax is maybe not quite right.  This can be nice, but can also cause problems when an error doesn't pop up to warn you that something unintentional is happening.
+
+When we load data into R, it will nearly always be as a dataframe where each column is a different variable.
+
+
+## Other formats
+There are other data types that we will encounter.  For example, when dealing a categorical variable, it is often useful to tell R that this is a factor with different levels.
+```{r}
+disease_status<-c("Case", "Control", "Control","Case","Case")
+disease_status<-factor(disease_status)
+disease_status
+```
+This is very useful for regression when a categorical variable must be replaced with dummy variables.
+
+Another structure we will encounter is a list.  Most output from functions in R is actually in this form.  It allows you to group together very different types of objections into one structure.
+```{r}
+mymatrix<-matrix(1:4,nrow=2,ncol=2)
+myvector<-10:1
+myfactor<-factor(c("red","blue","green"))
+mylist<-list(mymatrix,myvector,myfactor)
+```
+
+Lastly, note that you can extend matrices to more than two dimensions using arrays.  This isn't super common unless you work with certain types of data, for example spatio-temporal or longitudinal.
+```{r}
+myarray<-array(1:24,dim<-c(4,3,2))
+myarray
+```
+
+
+
+
+
+

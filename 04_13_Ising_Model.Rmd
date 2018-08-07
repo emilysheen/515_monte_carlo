@@ -1,0 +1,125 @@
+---
+title: "Ising Model"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+math_includes:
+- \DeclareMathOperator*{\argmax}{arg\,max}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+\newcommand{\Var}{\mathop{\mathrm{Var}}}
+
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+\newcommand{\by}{{\bf y}}
+\newcommand{\bY}{{\bf Y}}
+
+
+\newcommand{\vep}{{\varepsilon}}
+
+The Ising model is often used as an example to illustrate the power of Monte Carlo methods.  It is used to model data that consists of binary values on a regular lattice (typically 2-d).  Because of historical reasons, it is often motivated using examples from physics, in particular, at each node on the lattice there is an electron that either has a positive or negative charge.  So the Ising model is used to model configurations of these charges, where each charge is allowed to depend on its neighbor.  A more relevant example for statisticians might be in the analysis of image data.  Images are often represtended as pixels, which form a 2D lattice.  If we want to fit a statistical model to such data, then the Ising model is one such option as long as the pixels can be represented in a binary form.    
+
+So, we assume that we have data that takes the form $Y_{ij} \in \{-1,1\}$.  The indices $i,j$ denote the row/column location of $Y_{ij}$ (ie its location on the latice).  Assume that $1 \leq i \leq I$ and $1 \leq j \leq J$, so that there are $N=IJ$ nodes.  Let $\bY$ denote the matrix of all $\{Y_{ij}\}$.  We want to come up with a model for 
+\[
+P( \bY = \by),
+\]
+where $\by$ is some configuration of the image.  Of course, if all of the pixels are iid then
+\[
+P(\bY = \by) = \prod_{ij} p^{(y_{ij}+1)/2}(1-p)^{(1-y_{ij})/2},
+\]
+is the only possible model.  So, with the Ising model, we want to modify this to allow for some spatial dependence.  The Ising model is then given by
+\[
+P(\bY = \by) \propto \exp \left\{ \beta \sum_{(i,j) \sim (i',j')} Y_{ij}Y_{i'j'}  \right\},
+\]
+where $(i,j) \sim (i',j')$ means that the two nodes are neighbors.  This formulation encourages neighboring nodes to have the same sign.  Folks will work with other sorts of functions, but this is usually where one starts.  Notice that finding the normalizing constant here is fairly hard unless $\beta=0$ since we have to sum over all possible $2^N$ configurations.  Thus the joint distribution is very hard to work with.  However, the conditional distributions of one node given all of the others is trivial.  In particular, we have
+\[
+P(Y_{ij} = 1 | \bY_{(ij)}) \propto \exp \left\{  \beta \sum_{(i,j) \sim (i',j')} Y_{i'j'}  \right\},
+\]
+and
+\[
+P(Y_{ij} = -1 | \bY_{(ij)}) \propto \exp \left\{- \beta \sum_{(i,j) \sim (i',j')} Y_{i'j'}  \right\},
+\]
+and the summand includes at most 4 terms. We thus have that
+\[
+P(Y_{ij} = y | \bY_{(ij)}) \frac{ \exp \left\{  y\beta \sum_{(i,j) \sim (i',j')} Y_{i'j'}  \right\}}{ \exp \left\{  y\beta \sum_{(i,j) \sim (i',j')} Y_{i'j'}  \right\}+ \exp \left\{  (1-y)\beta \sum_{(i,j) \sim (i',j')} Y_{i'j'}  \right\}}.
+\]
+
+So, we can use a Gibbs sampler to actually sample from the Ising model (no Bayesian statistics yet).  Let's play around with this.
+
+```{r}
+I<-50
+J<-50
+N<-I*J
+beta<-50
+  
+Y0<-matrix(sample(c(-1,1),size=N,replace=TRUE),nrow=I,ncol=J) # start all 1
+Y<-Y0
+Ncount<-matrix(nrow=I,ncol=J  )
+
+gibbs_it<-100
+Y_all<-array(dim=c(gibbs_it,I,J))
+
+for(g in 1:gibbs_it){
+  for(i in 1:I){
+    if(i==1){Ni = i+1
+    }else if(i==I){Ni=i-1
+    }else{Ni<-c(i-1,i+1)}
+    for(j in 1:J){
+      if(j == 1){Nj = j+1
+      }else if(j==J){Nj=j-1
+      }else{Nj<-c(j-1,j+1)}
+      
+      Yi_v<-Y[Ni,j]
+      Yj_v<-Y[i,Nj]
+      
+      Ncount[i,j] = length(Yi_v)+length(Yj_v)
+      eta<-sum(c(Yi_v,Yj_v))
+      p1<-exp(beta*eta)/(exp(beta*eta)+exp(-beta*eta))
+      Y[i,j]<-sample(c(-1,1),1,prob=c(1-p1,p1))
+    }
+  }
+  Y_all[g,,] = Y
+}
+image(Y,useRaster=TRUE,axes=FALSE)
+```
+
+Let's make a movie to visualize all of this.
+```{r,include=FALSE}
+#You need the animation package+ffmpeg installed on your computer
+#install.packages("animation")
+library(animation)
+
+# Make Movie
+image(Y,useRaster=TRUE,axes=FALSE)
+ani.record(reset = TRUE) # clear history before recording
+for(g in 1:gibbs_it){
+  image(Y_all[g,,],useRaster=TRUE,axes=FALSE)
+  ani.record() # record the current frame
+}
+
+oopts = ani.options(interval = 0.01)
+saveHTML(ani.replay(), img.name = "IsingSlides", htmlfile = paste("IsingMovie_beta",beta*10,".html",sep=""))
+```
+
+
+
+
+
+
+
+
+
+
+

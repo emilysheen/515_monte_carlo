@@ -1,0 +1,233 @@
+---
+title: "Introduction to MCMC"
+author: "Matthew Reimherr"
+math_includes: \DeclareMathOperator*{\argmax}{arg\,max}
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+
+\newcommand{\vep}{{\varepsilon}}
+
+
+## Markov Chain Monte Carlo
+While using conjugate priors is convenient, it is quite limiting, especially as one moves to more complicated models.  Over the next few weeks we will introduce techniques for sampling from the posterior directly (or any difficult distribution).  The first algorithm that we will cover is called *Metropolis-Hastings*.  The idea is similar to accept/reject, but the proposals are now made from a *Markov Chain*.  A major advantage of this approach is that you no longer need to find any bounds on densities or ratios of densities.  In addition, just like accept/reject you actually don't even need to know the density exactly.  Knowing it up to a constant is good enough.
+
+Let $f(x)$ denote the target density we want to sample from.  However, suppose we only know the function $b(x)$ which is equal to $f$ up to a positive constant, e.g.
+\[
+\int b(x) = C \Longrightarrow f(x) = \frac{b(x)}{C}.
+\]
+
+So, our goal is to generate $X_1,\dots,X_n$ that have, at least approximately, density $f$.  Now, suppose that we have the following conditional distributions to make draws from: $q(x|y)$, that is, given the chain is currently at $y$ we draw a proposal from the conditional density $q(x|y)$.  What this means is that, if $Z_1,Z_2,\dots$ is a Markov Chain from this kernel then one has that
+\[
+p_{Z_{n} | Z_{n-1},Z_{n-2},\dots}(z_n | z_{n-1},z_{n-1},\dots)
+=p_{Z_n | Z_{n-1}}(z_n | z_{n-1}) = q(z_n | z_{n-1}).
+\]
+So, this is a dependent sequence of random variables and their dependence is described via $Q$.  
+
+Using $q$ we define a new Markov Chain as follows.  If $X_{n} = x$ then we generate a new value $x'$ from $Q(x'|x)$, however we don't immidiately set $X_{n+1}$ to $x'$.  Instead we will accept/reject this proposal.  We accept it with probability
+
+\[\rho(x'| x) = \min\left\{\frac{q(x|x')b(x')}{q(x'|x)b(x)}  ,1 \right\}. \]
+
+In other words, we see how "good" the proposal is before accepting it.  We are more likely to accept it if the proposal moves to a region where $b(x)$ assigns a lot of weight.  If we accept the proposal, then $X_{n+1}=x'$, if we reject then $X_{n+1}=x$ (the previous value):
+\begin{align*}
+\text{accept} \longrightarrow X_{n+1}=x' \\
+\text{reject} \longrightarrow X_{n+1}=x = x_{n}.
+\end{align*}
+We continue this process until we reach some desired sample size.  In summary:
+\begin{enumerate}
+\item Set $X_1 =x_1$, some initial value and let $n=1$
+\item Generate $x'$ from $q(x'|x_{n})$.
+\item With probability
+\[
+\rho(x'|x_n) = \min\left\{\frac{q(x_n|x')b(x')}{q(x'|x_n)b(x_n)}  ,1 \right\}.
+\]
+set $X_{n+1}$ equal to $x'$, otherwise set $X_{n+1}$ equal to $x_{n}$.
+\item Continue steps 2-3 until a desired sample size is reached.
+\end{enumerate}
+
+
+
+### Sampling normals from uniforms
+Let's take the "Bayesian" component out for now and just imagine sampling from a particular distribition.  In this case, let's sample from a normal and make proposals according to a uniform, that is, if $X_{n}=x$ then we will propose $x' = x+U(-1,1)$.  This nice thing about a proposal like this is that the $Q$ terms in the acceptance probabilities cancel.
+```{r}
+mu<-10
+sig<-.1
+
+mc_N<-1000000
+X<-numeric(mc_N)
+X[1]<-mu - 20*sig
+
+urange<- 10
+f<-function(x){dnorm(x,mean=mu,sd=sig)}
+fl<-function(x){log(dnorm(x,mean=mu,sd=sig))}
+Q<-function(x1,x2){dunif(x1,min=x2-urange,max=x2+urange)}
+accept_fun<-function(x_c,x_p){
+  accept<-f(x_p)/f(x_c)
+  #accept<-exp(fl(x_p)-fl(x_c)) # for really extreme values
+  return(min(accept,1))
+}
+
+
+for(i in 2:mc_N){
+  x_prop<-X[i-1]+runif(1,min=-urange,max=urange)
+  accept<-accept_fun(X[i-1],x_prop)
+  dec<-rbinom(1,1,accept)
+  if(dec==1){
+    X[i] = x_prop
+  }else{
+    X[i] = X[i-1]
+  }
+}
+plot(X,type="l",ylim=c(min(X),max(X)))
+hist(X)
+acf(X)
+```
+You see that we need a few hundred iterations to get things to stablize.  It is best to throw out the first, say 200, to make sure we are sampling from the stationary distribution.
+```{r}
+X_cut<-X[-(1:200)]
+acf(X_cut)
+plot(density(X_cut))
+curve(dnorm(x,mean=mu,sd=sig),add=TRUE,lty=2)
+```
+
+You can see that this was actually relatively easy.  We didn't need a CDF (or its inverse), we didn't need difficult bounds on ratios of densities, and our proposals were very simple.  
+
+### Regression and Weakly Informative Priors
+In general, it can be hard to choose a prior, especially if you have no real prior information.  Even if you do have some prior information, it can be hard to translate that it into priors for really complicated models.  In Gelman, Jakulin, Pittau, and Su (2008), they introduced the concept of a \textit{ weakly informative prior}.  The basic idea is that if you standardize all of the data, then you eliminate the chance of having really crazy coefficients and you are safe in using heavy tailed priors that are centered around zero.
+
+For regression,
+\[
+y_i = \sum_{j=1}^p x_{ij} \beta_j + \vep_i, 
+\]
+they recommend first rescaling all continuous variables to have mean 0 and standard deviation 0.5.  They then recommend placing independent Cauchy priors with center 0 and scale 2.5 on all mean coefficients.  For linear regression this means we don't need an intercept, though in other glms you still would.  What to do with the variance seems a little less clear, however since all of the data is standardized the variance of $\vep_i$ has to be less than 0.25, so, we could try something like a uniform(0,0.25) or an inverse gamma that concentrates on that interval.  However, another popular choice occurs by taking a limit of gammas, namely, if we let $\alpha \to 0$ and $\beta \to 0$, then the prior on $\sigma^2$ becomes approximately
+\[
+\pi(\sigma^2) \approx \frac{1}{\sigma^2}.
+\]
+We can use this as the prior, but note that it can't be normalized because it integrates to infinity, this is called an \textit{improper prior}, because it is not actually a probability distribution.  Let's put all of this together in an example:
+\begin{align*}
+p(y_i | x_i, \beta,\sigma^2) & \sim N(x_i^\top \beta, \sigma^2) \\
+\pi(\beta_i) &\sim Cauchy(0,2.5) \\
+\pi(\sigma^2) & \sim \frac{1}{\sigma^2}
+\end{align*}
+
+```{r}
+attach(trees)
+y<-Volume
+x<-Height
+```
+
+So, let's set this up.
+```{r}
+x<-scale(x)
+y<-scale(y)
+mean(x);var(x);mean(y);var(y)
+
+plot(x,y,xlab="Height",ylab="Volume")
+lmfit<-lm(y~x)
+summary(lmfit)
+```
+
+Set up the priors and likelihood
+```{r}
+
+# Up to a constant
+# Note, if the posterior is really bad, you can swap to the log scale
+# just remember to take the exponential when computing rho
+# this is especially nice if you use random walks for your proposals.
+post<-function(beta,sig2){
+  mu_v<-x*beta
+  tmp<-dnorm(y,mean=mu_v,sd=sqrt(sig2))
+  return(prod(tmp)*(1/sig2)*(sig2>0)*dcauchy(beta,location=0,scale=2.5))
+}
+```
+
+Now let's run through the MH algorigthm using a random walk with uniforms, that is, for the current value of $\beta$ and $\sigma^2$ we add small independent uniforms for each.
+```{r}
+mc_len<-100000
+beta_mc<-numeric(mc_len)
+sig2_mc<-numeric(mc_len)
+beta_mc[1]<-0
+sig2_mc[1]<-1
+
+beta_range<-0.1
+sig2_range<-0.1
+for(i in 2:mc_len){
+  btmp<-beta_mc[i-1]+runif(1,min=-beta_range,max=beta_range)
+  stmp<-sig2_mc[i-1]+runif(1,min=-beta_range,max=beta_range)
+  rho<-post(btmp,stmp)/post(beta_mc[i-1],sig2_mc[i-1])
+  rho<-min(rho,1)
+  if(runif(1)<rho){
+    beta_mc[i]=btmp
+    sig2_mc[i]=stmp
+  }else{
+    beta_mc[i]=beta_mc[i-1]
+    sig2_mc[i]=sig2_mc[i-1]
+  }
+}
+```
+
+```{r}
+plot(beta_mc,type = "l")
+abline(h=lmfit$coefficients[2],col="red",lty=2)
+plot(sig2_mc,type = "l")
+sig2lm<-summary(lmfit)$sigma^2
+abline(h=sig2lm,col="red",lty=2)
+```
+
+Now let's look at histograms and confidence/credible intervals.
+```{r}
+hist(beta_mc)
+abline(v=quantile(beta_mc,probs=c(0.025,0.975)),lty=2,col="red")
+abline(v=mean(beta_mc),lty=2,col="blue")
+```
+
+Let's compare this with LM.
+```{r}
+mean(beta_mc);sd(beta_mc)
+quantile(beta_mc,probs=c(0.025,0.975))
+summary(lmfit)
+```
+
+Great, but this is a bit hard to intepret on this standardized scale.  However, we can go back by just multiplying the beta by the appropriate standard deviations.
+```{r}
+beta_unscale<-beta_mc*sd(Volume)/sd(Height)
+mean(beta_unscale);sd(beta_unscale)
+quantile(beta_unscale,probs=c(0.025,0.975))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

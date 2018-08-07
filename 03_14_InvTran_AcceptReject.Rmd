@@ -1,0 +1,204 @@
+---
+title: "Inverse CDF and Accept/Reject"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+---
+
+
+# Inverse Transformation Method
+The first method we cover involves transforming one random variable into another using some clever transformation.  Some of transformations you may have encountered before (t-distribution, chi-square).  However, we will use one very specific technique based on the *probability integral transformation*
+
+**Theorem:** *Let $X \in {\mathbb R}$ be a random variable with CDF $F_X(x)$ and quantile function $Q_X(u)$:
+\[
+Q_X(u) = \inf \{ x : u \leq F_X(x)\}.
+\]
+Let $U \sim U(0,1)$ then
+\[
+Q_X(U) \sim X.
+\]
+Conversley, if $F_X^{-1}$ exists then $F_X^{-1} = Q_X$ and $F_X(X) \sim U$. 
+*
+
+
+## Example: Exponential
+This technique is fairly limited since one has to be able to compute the inverse of the cdf, however one example where we can do this is the exponential.  
+\[
+F_X(x) = P(X \leq x) = 1 - \exp\{-\lambda x\}
+\]
+On the board we can verify that 
+\[
+F_X^{-1}(u) = \frac{-\log(1-u)}{\lambda}.
+\]
+Let's try out some simulations to see how it works.
+```{r}
+set.seed(440)
+sim_exp<-function(n,lambda=1){
+  U<-runif(n)
+  return(-log(1-U)/lambda)
+}
+n<-1000
+X1<-sim_exp(n=n,lambda=2)
+X2<-rexp(n=n,rate=2)
+breaks= seq(0,4,length=10)
+par(mfrow=c(1,2))
+hist(X1,main="Our approach",breaks=breaks)
+hist(X2,main="rexp approach",breaks=breaks)
+```
+
+## Discrete Case
+This approach can even be extended to when $X$ takes discrete values, but now we need the quantile function.  To allow for both negative and positive values, we assume that the values are ordered as $\dots < x_{i-1} < x_i < x_{i+1} < \dots$ for $i \in {\mathcal Z}$, i.e. any integar.  In this case, to simulate $X$ one can generate $U=u$ and then set $X=Q_X(u)$ which is the value $x_i$ that satisfies
+\[
+F_X(x_{i-1}) < u \leq F_X(x_i),
+\]
+since in this case $x_i$ is the smallest value of $x$ that satisfies $u \leq F(x)$.  
+
+### Poisson
+Recall that the Poisson distribution is given by
+\[
+P(X \leq j) = \sum_{j=0}^j \frac{e^{-\lambda} \lambda^i}{i !}.
+\]
+This is an unbounded distribution, meaning any value is possible.  However, it is very unlikely to generate anything too far from the mean, so we will fudge it a little.
+```{r}
+sim_pois<-function(n,lambda){
+  pos_val<-0:floor(lambda+1000*sqrt(lambda)) #very far from mean 
+  dens_val<-dpois(pos_val,lambda=lambda)
+  cdf_val<-cumsum(dens_val)
+  U<-runif(n)
+  X<-numeric(n)
+  for(i in 1:n){
+    X[i] = sum(U[i]>cdf_val)
+  }
+  return(X)
+}
+```
+Since we don't have a nice inverse function, we have to use a for loop to go one at a time and figure out what is the right value to return.
+```{r}
+n<-10000
+X1<-sim_pois(n,lambda=2)
+X2<-rpois(n,lambda=2)
+
+breaks<- (-0.5):12.5 #We know where we want bars, so we have to force it.
+par(mfrow=c(1,2))
+hist(X1,main="Our approach",breaks=breaks)
+hist(X2,main="rpois approach",breaks=breaks)
+```
+
+
+
+# Accept-Reject Method
+Another approach, which is closer to what we do in really complicated settings is called the *accept-reject method*.  We will desribe this for the continuous case, but the discrete is similar.  The idea is to generate candidates from a "nice" distribution $g$ and then to accept or reject the candidates in a way that produces a sample from another distribution $f$. So, if we can simulate from $g$ and at least evaluate $f$, then this method can work.
+
+So, the one thing we require is that
+\[
+\sup_{x \in {\mathbb R}} \frac{g(x)}{f(x)} < c < \infty.
+\]
+To implement this approach, we need to know a value for $c$ that works.  This isn't unique, but ideally would be as small as possible.  The method is then given by
+
+1. Generate a $y$ from $g$.
+2. Calculate $p = f(y)/[g(y) c]$
+3. With probability $p$ accept and set $x_i = y$, otherwise reject $y$ and return to 1.
+4. Repeat 1-3 until a sample of size $n$ is obtained.
+
+So, let's figure out why this works.  First, notice that
+\[
+P(Accept | Y=y) = \frac{f(y)}{g(y) c}
+\]
+So we then have that
+\[
+P(Accept) = \int P(Accept | Y=y)g(y) \ dy = 
+\int \frac{f(y)}{g(y) c} g(y) \ dy = \frac{1}{c}.
+\]
+Lastly, we get that
+\[
+p(y | Accept) = \frac{P(Accept | Y=y) g(y)}{P(Accept)}
+= \frac{f(y)[g(y) c]^{-1}g(y)}{c^{-1}} = f(y).
+\]
+Thus, conditioned on accepting $y$, the distribution is no longer $g$, it is $f$ (note, I am using a lower case $p$ to denote a density and an upper case to denote an actual probability).
+
+This is actually a pretty reasonable method, and is the beginning of being able to do some complex sampling.  Let's take a look at an example.
+
+## Example: Beta Sampling
+Recall that the Beta distribution satifies
+\[
+f(x;\alpha, \beta)=\frac{\Gamma(\alpha + \beta)}{\Gamma(\alpha)\Gamma(\beta)} x^{\alpha - 1} (1-x)^{\beta-1}.
+\]
+The $\Gamma$ functions are just there to act as constants so that the function actually integrates to 1. Recall that
+\[
+\Gamma(z) = \int_0^\infty x^{z-1} e^{-x} \ dx
+\qquad
+B(\alpha,\beta) = \frac{\Gamma(\alpha)\Gamma(\beta)}{\Gamma(\alpha + \beta)}.
+\]
+Basic integration by parts implies that
+\[
+\Gamma(z) = (z-1)\Gamma(z-1)
+\]
+and
+\[
+\Gamma(n) = (n-1)!
+\]
+which also implies that $\Gamma(1) =1$ (also follows from basic calculus).
+
+So, suppose we wanted to use a uniform to sample from the $beta$ distribution.  Since the uniform density is just $g(x) \equiv 1$ we need to find
+\[
+\sup_{x} \frac{f(x;\alpha,\beta)}{g(x)} =
+\sup_x f(x;\alpha,\beta).
+\]
+For simplicity, assume that $\alpha = \beta > 1$, then we can compute the derivative as
+\begin{align*}
+& (\alpha - 1) x^{\alpha - 2} (1-x)^{\alpha-1}
+- (\alpha -1)x^{\alpha - 1} (1-x)^{\alpha -2} = 0 \\
+& \Longrightarrow (1-x) - x = 0 \Longrightarrow x = 1/2.
+\end{align*}
+So, when $\alpha=\beta$, the max occurs at $1/2$.  Let's plot just to see this
+```{r}
+par(mfrow=c(2,2))
+curve(dbeta(x,1/2,1/2),from=0,to=1)
+curve(dbeta(x,1,1),from=0,to=1)
+curve(dbeta(x,2,2),from=0,to=1)
+curve(dbeta(x,3,3),from=0,to=1)
+```
+So, again, this is why we assume that $\alpha = \beta >1$.  We can the get that 
+\[
+c= \frac{\Gamma(2\alpha)}{\Gamma(\alpha)^2} 2^{2(1-\alpha)}.
+\]
+So, now lets use a *while* loop to sample from the beta distrubition using a uniform.
+```{r}
+alpha<-2
+c<- beta(alpha,alpha)^(-1) * 2^(2*(1-alpha))
+accept_fun<-function(y){dbeta(y,alpha,alpha)/c}
+n<-1000
+X_sample<-numeric(n)
+current_n<-1
+total_rep<-0
+while(current_n<=n){
+  y<-runif(1,min=0,max=1)
+  A_or_R<-rbinom(1,1,accept_fun(y))
+  if(A_or_R==1){
+    X_sample[current_n] = y
+    current_n<-current_n+1
+  }
+  total_rep<-total_rep+1
+}
+total_rep
+current_n
+length(X_sample)
+```
+Let's take a look at the plot.
+```{r}
+hist(X_sample,prob=TRUE)
+curve(dbeta(x,alpha,alpha),from=0,to=1,add=TRUE)
+```
+
+
+So, this can work nicely, but calculating this constant $c$ can be nontrivial.  Imagine you tried to extend this to multiple dimensions and unbounded domains, finding the $c$ could be quite hard.  Thankfully, we will build up to methods that avoid needing to know $c$.
+
+
+

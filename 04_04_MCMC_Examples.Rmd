@@ -1,0 +1,248 @@
+---
+title: "More Examples"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+math_includes:
+- \DeclareMathOperator*{\argmax}{arg\,max}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+
+\newcommand{\vep}{{\varepsilon}}
+
+
+
+### Regression and Weakly Informative Priors
+In general, it can be hard to choose a prior, especially if you have no real prior information.  Even if you do have some prior information, it can be hard to translate that it into priors for really complicated models.  In Gelman, Jakulin, Pittau, and Su (2008), they introduced the concept of a \textit{ weakly informative prior}.  The basic idea is that if you standardize all of the data, then you eliminate the chance of having really crazy coefficients and you are safe in using heavy tailed priors that are centered around zero.
+
+For regression,
+\[
+y_i = \sum_{j=1}^p x_{ij} \beta_j + \vep_i, 
+\]
+they recommend first rescaling all continuous variables to have mean 0 and standard deviation 0.5.  They then recommend placing independent Cauchy priors with center 0 and scale 2.5 on all mean coefficients.  For linear regression this means we don't need an intercept, though in other glms you still would.  What to do with the variance seems a little less clear, however since all of the data is standardized the variance of $\vep_i$ has to be less than 0.25, so, we could try something like a uniform(0,0.25) or an inverse gamma that concentrates on that interval.  However, another popular choice occurs by taking a limit of gammas, namely, if we let $\alpha \to 0$ and $\beta \to 0$, then the prior on $\sigma^2$ becomes approximately
+\[
+\pi(\sigma^2) \approx \frac{1}{\sigma^2}.
+\]
+We can use this as the prior, but note that it can't be normalized because it integrates to infinity, this is called an \textit{improper prior}, because it is not actually a probability distribution.  Let's put all of this together in an example:
+\begin{align*}
+p(y_i | x_i, \beta,\sigma^2) & \sim N(x_i^\top \beta, \sigma^2) \\
+\pi(\beta_i) &\sim Cauchy(0,2.5) \\
+\pi(\sigma^2) & \sim \frac{1}{\sigma^2}
+\end{align*}
+
+```{r}
+attach(trees)
+y<-Volume # Cubic Ft
+x<-Height # Ft
+```
+
+So, let's set this up.
+```{r}
+x<-scale(x)
+y<-scale(y)
+x<- x*0.5
+y<- y*0.5
+mean(x);sd(x);mean(y);sd(y)
+
+plot(x,y,xlab="Height",ylab="Volume")
+lmfit<-lm(y~x)
+summary(lmfit)
+```
+
+Set up the priors and likelihood
+```{r}
+
+# Up to a constant
+# Note, if the posterior is really bad, you can swap to the log scale
+# just remember to take the exponential when computing rho
+# this is especially nice if you use random walks for your proposals.
+post<-function(beta,sig2){
+  if(sig2<0){return(0)
+  }else{
+    mu_v<-x*beta
+    tmp<-dnorm(y,mean=mu_v,sd=sqrt(sig2))
+    return(prod(tmp)*(1/sig2)*dcauchy(beta,location=0,scale=2.5))
+  }
+}
+```
+
+Now let's run through the MH algorigthm using a random walk with uniforms, that is, for the current value of $\beta$ and $\sigma^2$ we add small independent uniforms for each.
+```{r}
+mc_len<-100000
+beta_mc<-numeric(mc_len)
+sig2_mc<-numeric(mc_len)
+beta_mc[1]<-0
+sig2_mc[1]<-1
+
+beta_range<-0.1
+sig2_range<-0.1
+for(i in 2:mc_len){
+  btmp<-beta_mc[i-1]+runif(1,min=-beta_range,max=beta_range)
+  stmp<-sig2_mc[i-1]+runif(1,min=-beta_range,max=beta_range)
+  rho<-post(btmp,stmp)/post(beta_mc[i-1],sig2_mc[i-1])
+  rho<-min(rho,1)
+  if(runif(1)<rho){
+    beta_mc[i]=btmp
+    sig2_mc[i]=stmp
+  }else{
+    beta_mc[i]=beta_mc[i-1]
+    sig2_mc[i]=sig2_mc[i-1]
+  }
+}
+```
+
+```{r}
+plot(beta_mc,type = "l")
+abline(h=lmfit$coefficients[2],col="red",lty=2)
+plot(sig2_mc,type = "l")
+sig2lm<-summary(lmfit)$sigma^2
+abline(h=sig2lm,col="red",lty=2)
+```
+
+Now let's look at histograms and confidence/credible intervals.
+```{r}
+hist(beta_mc)
+abline(v=quantile(beta_mc,probs=c(0.025,0.975)),lty=2,col="red")
+abline(v=mean(beta_mc),lty=2,col="blue")
+```
+
+Let's compare this with LM.
+```{r}
+mean(beta_mc);sd(beta_mc)
+quantile(beta_mc,probs=c(0.025,0.975))
+lmfit<-lm(y~x)
+summary(lmfit)
+```
+
+Great, but this is a bit hard to intepret on this standardized scale.  However, we can go back by just multiplying the beta by the appropriate standard deviations.
+```{r}
+beta_unscale<-beta_mc*sd(Volume)/sd(Height) # Note the 0.5 cancels out of the top and bottom
+mean(beta_unscale);sd(beta_unscale)
+quantile(beta_unscale,probs=c(0.025,0.975))
+lm(Volume~Height)
+```
+
+## Mixed Effects Example
+Mixed effects models are actually pretty hard to fit in classic settings, while in a Bayesian context they are about as hard as anything else.  Let's just consider an exmaple from the *lme4* package
+```{r}
+library(lme4)
+head(cbpp)
+```
+We want to estimate the incidence of *bovine pleuropneumonia*, but the same herds are observed multiple times (actually we want to see how this changes with period, but lets keep it simple for now).  However, we observe the same herds at the different periods, so we have some dependence.  The classic way of handling this is via a mixed effects model.  So
+\[
+Y_{ij} = \text{incidence for herd $i$ at period $j$} \sim Binom(size,p_{ij})
+\]
+here *size* is the size of the herd.  We want the $p_{ij}$ to reflect depencence between observations from the same herd:
+\[
+\mbox{logit}(p_{ij}) = \log\left( \frac{p_{ij}}{1-p_{ij}}\right) = \alpha + \delta_i,
+\]
+we assume that $\delta_i \sim N(0,\sigma^2)$ is a random intercept that is used to account for this within herd dependence.  Again, let's use our weakly informative priors in this setting as well (cauchy on $\alpha$ and $1/\sigma^2$ for the variance).
+
+However, to setup the MH algorithm, we actually have to include the $\delta_i$ as well, since we only know the distribution of $Y_{ij}$ after conditioning on both $\alpha$ and $\delta_i$:
+\begin{align*}
+p(Y_{ij} | \alpha, \delta_i, \sigma^2) & \sim Binom(Size_{ij}, p_{ij}) \\
+\pi(\alpha) & \sim Cauchy(0,scale=2.5) \\
+\pi(\sigma^2) & \propto 1/\sigma^2 \\
+p(\delta_i | \sigma^2) & \sim N(0,\sigma^2)
+\end{align*}
+
+```{r}
+Y<-cbpp$incidence
+N<-cbpp$size
+Z<-cbpp$herd
+
+# Distribution of Y given all terms
+Lik<-function(alpha,sig2,delta){
+  eta<-alpha+delta[Z]
+  p<-exp(eta)/(1+exp(eta))
+  return(prod(dbinom(Y,N,p)))
+}
+prior<-function(alpha,sig2,delta){
+  p1<-1/sig2
+  p2<-dcauchy(alpha,location=0,scale=2.5)
+  p3<-dnorm(delta,mean=0,sd=sqrt(sig2))
+  return(p1*p2*prod(p3))
+}
+```
+Now let's just feed this to *metrop*
+```{r}
+log_post<-function(x){
+  alpha<-x[1];sig2<-x[2];delta<-x[-(1:2)]
+  log(Lik(alpha,sig2,delta)*prior(alpha,sig2,delta))
+}
+```
+```{r}
+MC_len<-100000
+mc_par<-matrix(nrow=MC_len,ncol=17)
+mc_par[1,]<-c(0,.1,rep(0,times=15))
+
+step<-0.1
+for(j in 2:MC_len){
+  U<-runif(17,min=-step,max=step)
+  xprop<-mc_par[j-1,]+U
+  if(xprop[2]<0){
+    mc_par[j,] = mc_par[j-1,]
+  }else{
+    rho<-exp(log_post(xprop)-log_post(mc_par[j-1,]))
+    rho<-min(rho,1)
+    if(runif(1)<rho){
+      mc_par[j,]=xprop
+    }else{
+      mc_par[j,]=mc_par[j-1,]
+    }
+  }
+}
+```
+
+```{r}
+plot(mc_par[,1],type="l")
+plot(mc_par[,2],type="l")
+```
+
+
+```{r}
+hist(mc_par[-(1:100),1])
+abline(v=mean(mc_par[-(1:100),1]),col="red")
+glmer(cbind(incidence, size - incidence) ~ (1 | herd),data = cbpp, family = binomial)
+
+print("Bayesian Approach")
+mean(mc_par[-(1:100),1])
+mean(sqrt((mc_par[-(1:100),2])))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

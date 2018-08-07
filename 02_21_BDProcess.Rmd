@@ -1,0 +1,88 @@
+---
+title: "Birth Death Process Simulation"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+Let's start by simulating one realization of a birth death process.  Technically it isn't a problem to allow negative values, but it might not make sense as a model for a population.
+```{r}
+cb<-2; cd<-1
+# lambda_i
+b_f<-function(i){cb*(i+1)}
+# mu_i
+d_f<-function(i){cd*i}
+
+n<-10 #simulate until n events occur
+X<-numeric(n+1)
+T<-numeric(n)
+X[1]<-1 
+
+for(i in 1:n){
+  v<-b_f(X[i])+d_f(X[i])
+  lamb<-b_f(X[i])
+  p<-lamb/v
+  T[i]<-rexp(1,rate=v)
+  
+  X[i+1]<-X[i] + sample(c(-1,1),size=1,prob=c(1-p,p))
+}
+X
+T
+S<-cumsum(T)
+plot(stepfun(S,X),main="",ylab="X(t)",xlab="t")
+```
+
+Now let's use simulations (i.e. Monte Carlo) to estimate $P_{1j}(t)$ for different $j$ and as a function of $t$.
+
+```{r}
+cb<-1/4; cd<-1/2
+# lambda_i
+b_f<-function(i){cb*(i+1)}
+# mu_i
+d_f<-function(i){cd*i}
+
+reps<-1000
+m<-1000
+t_end<-1
+t_all<-seq(0,t_end,length=m)
+X_all<-matrix(nrow=reps,ncol=m)
+for(i in 1:reps){
+  X_c<-1
+  S_c<-0
+  while(S_c<=t_end){
+    v<-b_f(X_c)+d_f(X_c)
+    lamb<-b_f(X_c)
+    p<-lamb/v
+    S_n<-S_c+rexp(1,rate=v)
+    X_all[i,(t_all>=S_c & t_all< S_n)] = X_c
+    
+    X_c<-X_c + sample(c(-1,1),size=1,prob=c(1-p,p))
+    S_c<-S_n
+  }
+}
+```
+
+```{r}
+matplot(t_all,t(X_all),type="l",col="grey")
+```
+
+Now let's estimate a few of the $P_{1j}(t)$.
+```{r}
+j<-1
+Pjt<-colMeans(X_all==j)
+plot(t_all,Pjt,type="l",xlab="t",ylab="P1j(t)",ylim=c(0,1))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

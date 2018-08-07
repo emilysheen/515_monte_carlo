@@ -1,0 +1,212 @@
+---
+title: "Mixed Effects Model"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+math_includes:
+- \DeclareMathOperator*{\argmax}{arg\,max}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+\newcommand{\Var}{\mathop{\mathrm{Var}}}
+
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+
+\newcommand{\vep}{{\varepsilon}}
+
+
+
+
+## Mixed Effects Example
+Mixed effects models are actually pretty hard to fit in classic settings, while in a Bayesian context they are about as hard as anything else.  Let's first recall what a mixed effects model is.  In general, you can a linear mixed effects model as
+\[
+Y_i = \sum_{j=1}^p X_{ij} \beta_j + \sum_{k=1}^q Z_{ik} \gamma_k + \vep_i.
+\]
+Here the $Y_i$, $X_{ij}$, and $Z_{ij}$ are all observed, while the $\beta_j$ are "fixed" and the $\gamma_k$ are "random".  The idea here is that the $X_{ij}$ are predictors that describe the mean, while the $Z_{ij}$ predictors that describe the variance and covariance.  This is quite general, so let's consider the a classic formulation based on "repeated measures".
+
+As an example, suppose that subjects participate in a clinical trial for an asthma medication.  Each patient is observed multiple times to determine the drugs efficacy.  Let $Y_{ij}$ be the outcome (say some measure of lung strength) of subject $i$ at visit $j$ and $X_i$ is 0/1 denoting if they were in treatment or control group.  Usually, one would write the model as
+\[
+Y_{ij} = \alpha + \beta X_i + \delta_i + \vep_{ij},
+\]
+where $\delta_i$ is a *subject level* effect and represents the fact tha observations from the same subject are correlated.  Usually one would assume that $\delta_i \sim N(0,\sigma^2_\delta)$ and $\vep_{ij} \sim N(0,\sigma^2_\vep)$.  Notice that we have
+\[
+\E[Y_{ij}] = \alpha + \beta X_i
+\qquad \Var(Y_{ij}) = \sigma^2_\delta + \sigma^2_\vep
+\qquad \Cov(Y_{ij},Y_{ik})= \sigma^2_\delta.
+\]
+So, $\sigma^2_\delta$ controls the amount of within subject correlation we have.  Notice you can rewrite this in our original setup by just stacking everything into vectors.
+
+Fitting linear mixed effects models is not so bad as you can still use likelihood based methods without too much trouble (though you will be inverting some large matrices).  The bigger issue comes when you move to more complicated models, for example, if the outcomes were binary, then you would want a logistic regression, but you would still want to include random effects to allow for dependence.
+
+
+
+Let's consider an example from the *lme4* package
+```{r}
+library(lme4)
+head(cbpp)
+```
+We want to estimate the incidence of *bovine pleuropneumonia*, which is a contagious respitory disease, but the same herds are observed multiple times (actually we want to see how this changes with period, but lets keep it simple for now), so we have some dependence.  The classic way of handling this is via a mixed effects model.  So
+\[
+Y_{ij} = \text{incidence for herd $i$ at period $j$} \sim Binom(Size_{ij},p_{ij})
+\]
+here *size* is the size of the herd.  We want the $p_{ij}$ to reflect depencence between observations from the same herd:
+\[
+\mbox{logit}(p_{ij}) = \log\left( \frac{p_{ij}}{1-p_{ij}}\right) = \alpha + \delta_i,
+\]
+we assume that $\delta_i \sim N(0,\sigma^2)$ is a random intercept that is used to account for this within herd dependence.  Again, let's use our weakly informative priors in this setting as well (cauchy on $\alpha$ and $1/\sigma^2$ for the variance).
+
+However, to setup the MH algorithm, we actually have to include the $\delta_i$ as well, since we only know the distribution of $Y_{ij}$ after conditioning on both $\alpha$ and $\delta_i$:
+\begin{align*}
+p(Y_{ij} | \alpha, \delta_i, \sigma^2) & \sim Binom(Size_{ij}, p_{ij}) \\
+\pi(\alpha) & \sim Cauchy(0,scale=2.5) \\
+\pi(\sigma^2) & \propto 1/\sigma^2 \\
+p(\delta_i | \sigma^2) & \sim N(0,\sigma^2)
+\end{align*}
+
+```{r}
+Y<-cbpp$incidence
+N<-cbpp$size
+Z<-cbpp$herd
+
+# Distribution of Y given all terms
+Lik<-function(alpha,sig2,delta){
+  eta<-alpha+delta[Z]
+  p<-exp(eta)/(1+exp(eta))
+  return(prod(dbinom(Y,N,p)))
+}
+
+# I will call this entire thing the prior
+# even though it is the prior + random effect part
+prior<-function(alpha,sig2,delta){
+  p1<-1/sig2
+  p2<-dcauchy(alpha,location=0,scale=2.5)
+  p3<-dnorm(delta,mean=0,sd=sqrt(sig2))
+  return(p1*p2*prod(p3))
+}
+```
+
+Setup the log-posterior since the *metrop* function in the MCMC package wants the posterior on the log scale.  Note that this function also wants you to combine all of the parameters into a single vector.
+```{r}
+log_post<-function(x){
+  alpha<-x[1];sig2<-x[2];delta<-x[-(1:2)]
+  if(sig2>0){
+    return(log(Lik(alpha,sig2,delta)*prior(alpha,sig2,delta)))
+  }else{return(-Inf)}
+}
+```
+
+Now let's just feed this to *metrop*
+```{r}
+library(mcmc)
+MC_len<-100000
+step<-0.1
+met_sam<-metrop(log_post,c(0,.1,rep(0,times=15)),MC_len,scale=step)
+par(mfrow=c(1,2))
+plot(met_sam$batch[,1],type="l")
+plot(met_sam$batch[,2],type="l")
+```
+
+Now let's program it manually.
+```{r}
+MC_len<-100000
+step<-0.1
+mc_par<-matrix(nrow=MC_len,ncol=17)
+mc_par[1,]<-c(0,.1,rep(0,times=15))
+
+for(j in 2:MC_len){
+  U<-runif(17,min=-step,max=step)
+  xprop<-mc_par[j-1,]+U
+  if(xprop[2]<0){
+    mc_par[j,] = mc_par[j-1,]
+  }else{
+    rho<-exp(log_post(xprop)-log_post(mc_par[j-1,]))
+    rho<-min(rho,1)
+    if(runif(1)<rho){
+      mc_par[j,]=xprop
+    }else{
+      mc_par[j,]=mc_par[j-1,]
+    }
+  }
+}
+```
+
+```{r}
+plot(mc_par[,1],type="l")
+plot(mc_par[,2],type="l")
+```
+
+
+```{r}
+hist(mc_par[-(1:100),1])
+abline(v=mean(mc_par[-(1:100),1]),col="red")
+glmer(cbind(incidence, size - incidence) ~ (1 | herd),data = cbpp, family = binomial)
+
+print("Bayesian Approach: Manual")
+mean(mc_par[-(1:100),1])
+mean(sqrt((mc_par[-(1:100),2])))
+
+print("Bayesian Approach: Metrop")
+mean(met_sam$batch[-(1:100),1])
+mean(sqrt((met_sam$batch[-(1:100),2])))
+```
+
+So these parameters are on the logit (log-odds scale), which is not a nice scale for interpretation.  To interpret them, it is useful to head back ot the original scale
+```{r}
+exp(-2.02)/(1+exp(-2.02))
+```
+so the prevelance of this pneumonia is about 12\%.  We could also calculate this using a grand average
+```{r}
+sum(Y)/sum(N)
+```
+which gives us about the same thing, however we will underestimate the uncertainty.
+```{r}
+phat<-sum(Y)/sum(N)
+se_phat<-sqrt(phat*(1-phat)/sum(N))
+
+# Ignore Dependence
+se_phat
+
+# Include Dependence
+p_mc<-exp(met_sam$batch[-(1:100),1])/(1+exp(met_sam$batch[-(1:100),1]))
+sd(p_mc)
+```
+So, the SE is almost three times bigger when you properly account for the herd dependence.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

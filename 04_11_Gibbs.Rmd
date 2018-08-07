@@ -1,0 +1,248 @@
+---
+title: "Gibbs Samplers"
+author: "Matthew Reimherr"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+  word_document: default
+header_includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+math_includes:
+- \DeclareMathOperator*{\argmax}{arg\,max}
+---
+
+\newcommand{\E}{\mathop{\mathrm{E}}}
+\newcommand{\Cov}{\mathop{\mathrm{Cov}}}
+\newcommand{\Var}{\mathop{\mathrm{Var}}}
+
+
+\newcommand{\mcF}{{\mathcal{F}}}
+\newcommand{\bH}{{\bf H}}
+\newcommand{\mbR}{{\mathbb{R}}}
+\newcommand{\bx}{{\bf{x}}}
+
+\newcommand{\vep}{{\varepsilon}}
+
+
+By now we have hopefully noticed one major challenge with traditional MH, which is that it happens "all at once".   A fairly simple fix to this problem is known as a *Gibbs Sampler*, which basically swaps to updating parameters either one at a time or in groups, so that it is easier to make proposals.  In general, suppose that we want to sample from a distribution $f(x_1,\dots, x_p)$ where the coordinates have been grouped so that the $x_i$ can be vectors.  We then proceed to cycle through the coordinates updating one at a time:
+\begin{enumerate}
+\item Set $\bx^{(1)}$ equal to some initial value and let $n=1$ and $j=1$.
+\item Sample $x'$ from $g(x')  \propto f(x^{n+1}_1, \dots, x^{(n)}_{i-1}, x', x^{(n)}_{j+1},\dots)$.  The sampling can be done via a MH if it can't be done directly.  Update $x^{(n)}_j$ and set $j = j+1$.
+\item Repeat until $j=p+1$, then set $n=n+1$, reset $j=1$. 
+\item Repeat (2) and (3) until a desired sample size has been reached.
+\end{enumerate}
+So, very similar to MH, but the coordinates are updated one at time so that better proposals can be made for each coordinate. Notice that $g(x')$ is the conditional distribution of $X_{i}$ given the other values.
+
+
+## Example Heirarchical Model
+Let's consider a very basic example of a *heirarchical* model.  Our revious random effect models sort of fall into this category, but aren't usually what one thinks of when hearing heirarchical model.  This model will be used to tie the means of different groups together.  In particular, let $Y_{ij}$ denote the $jth$ observation from the $ith$ group.  Then we model it as 
+\[
+Y_{ij}  \sim N(\theta_i, \sigma^2),
+\]
+where we assume that
+\[
+\theta_i \sim N(\mu, \tau^2).
+\]
+Now this model can be fit at this point using frequentist methods, note the parameters are $\mu,\sigma^2$, and $\tau^2$, not the $\theta_i$ (which are a sort of random term).
+
+If we want to take a Bayesian approach, then we have to now introduce priors on $\mu$, $\sigma^2$, and $\tau^2$.  If we want everything to be conjugate, then we can use
+\begin{align*}
+& \mu \sim N(\mu_0,\sigma^2_\mu) \\
+& \sigma^2 \sim IG(a_1,b_1) \\
+& \tau^2 \sim IG(a_2,b_2).
+\end{align*}
+We won't work this out as it is quite tedious, but we can explictly find all of the necessary conditional distributions for Gibbs since these are all conjugate priors.
+\begin{align*}
+\theta_i & \sim N\left( \frac{\sigma^2}{\sigma^2 + n_i \tau^2} \mu + \frac{n_i \tau^2}{ \sigma^2 + n_i \tau^2} \bar X_i,   \frac{\sigma^2 \tau^2 }{\sigma^2 + n_i \tau^2}\right) \\
+\mu &\sim N \left(
+\frac{\tau^2}{\tau^2 + k \sigma^2_\mu} \mu_0 + \frac{k \sigma_\mu^2}{ \tau^2 + k \sigma^2_\mu} \bar \theta,   \frac{\sigma^2_\mu \tau^2 }{\tau^2 + k \sigma^2_\mu }
+\right) \\
+\sigma^2 &\sim IG \left(
+a_1 + \frac{1}{2} \sum n_i, b_1 + \frac{1}{2} \sum_i \sum_j (X_{ij} - \theta_i)^2
+\right) \\
+\tau^2 &\sim IG \left(
+a_2 + \frac{1}{2} k , b_2 + \frac{1}{2}\sum_i (\theta_i - \mu)^2
+\right).
+\end{align*}
+
+Notice that we can really draw directly from this distribution, however, we can use Gibbs to cycle sampling from each of the above conditional distributions.
+
+### Data Example
+Let's consider the *sleep* dataset in *R*.  Again, this dataset has two groups of patients that take a different drug to help improve sleep.  The outcome is change in the number of hours slept.  Note that the same subjects appear in both groups, but let's treat them as independent for now (can be handled with another random effect term).  
+
+```{r}
+library(invgamma)
+N_MC<-100000
+tot_par<-5
+mc_mat<-matrix(nrow=N_MC,ncol=tot_par)
+
+theta_c<-c(0,0)
+mu_c<-0
+sig2_c<-1
+tau2_c<-1    
+
+#Hyper parameters
+a1 <- 2.00001
+a2 <- 2.00001
+b1 <- a1-1
+b2 <- a2-1
+mu0 <- 0 # ok to keep zero
+sig2mu <- 100000000 # hopefully still weak.
+     
+mc_mat[1,] = c(theta_c,mu_c,sig2_c,tau2_c)
+
+X<-sleep$extra
+Xbar<-c(mean(X[sleep$group==1]), mean(X[sleep$group==2]))
+n<-10
+for(i in 2:N_MC){
+  
+  # Theta
+  mean_tmp<-sig2_c*mu_c/(sig2_c+n*tau2_c) + n*tau2_c*Xbar/(sig2_c+n*tau2_c)
+  var_tmp<-sig2_c*tau2_c/(sig2_c+n*tau2_c)
+  theta_c = rnorm(2,mean=mean_tmp,sd=sqrt(var_tmp))
+  
+  # mu
+  mean_tmp<-tau2_c*mu0/(tau2_c+2*sig2mu) + 2*sig2mu*mean(theta_c)/(tau2_c + 2*sig2mu)
+  var_tmp<- sig2mu*tau2_c/(tau2_c + 2*sig2mu)
+  mu_c = rnorm(1,mean=mean_tmp,sd=sqrt(var_tmp))
+  
+  # sigma2
+  a_tmp<-a1+10
+  b_tmp<- b1+0.5 * sum((X-rep(theta_c,each=10))^2)
+  sig2_c = rinvgamma(1,shape=a_tmp,scale=b_tmp)
+  
+  # tau2
+  a_tmp<-a2+1
+  b_tmp<-b2+0.5*sum((theta_c-mu_c)^2)
+  tau2_c = rinvgamma(1,shape=a_tmp,scale=b_tmp)
+  
+  mc_mat[i,] = c(theta_c,mu_c,sig2_c,tau2_c)
+}
+
+mc_mat<-mc_mat[-c(1:1000),]
+
+
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(density(mc_mat[,1]))
+abline(v=Xbar[1],col="blue")
+plot(density(mc_mat[,2]))
+abline(v=Xbar[2],col="red")
+
+par(mfrow=c(1,1))
+plot(density(mc_mat[,1]),xlim=c(0,3))
+
+dtmp<-density(mc_mat[,2])
+points(dtmp$x,dtmp$y,col="blue",type="l")
+
+Xbar
+sd(X[sleep$group==1])/sqrt(10)
+sd(X[sleep$group==2])/sqrt(10)
+```
+
+
+
+### Simulation Study
+Let's redo the above, but now with a known model to see if the uncertainty we are seeing in our estimates is way too low.  We will basically simulate using parameters very similar to the one seen in the data application.
+
+
+
+
+
+```{r}
+n <- 10
+K <- 2
+N <- n*K
+group<-rep(1:K,each=n)
+
+
+# True Parameters
+theta_true<-seq(0,2,length=K)
+sig2_true<-0.25
+
+# Simulation parmeters
+reps<-1000
+N_MC<-1000
+burn<-100
+tot_par<-K+3
+CI_array<-array(dim=c(reps,2,tot_par)) # reps x CI x par
+alpha_lev<-0.05
+
+#Hyper parameters
+a1 <- 0
+a2 <- 0
+b1 <- 0
+b2 <- 0
+mu0 <- 0 # ok to keep zero
+sig2mu <- 10000000000 # hopefully still weak.
+
+for(i_rep in 1:reps){
+  
+  mc_mat<-matrix(nrow=N_MC,ncol=tot_par)
+  
+  # Starting values
+  theta_c<-c(0,0)
+  mu_c<-0
+  sig2_c<-1
+  tau2_c<-1    
+  
+  mc_mat[1,] = c(theta_c,mu_c,sig2_c,tau2_c)
+  theta_vec<-rep(theta_true,each=n)
+  X<-rnorm(N,mean=theta_vec,sd=sqrt(sig2_true))
+  Xbar<-c(by(X,group,mean))
+
+  for(i in 2:N_MC){
+    
+    # Theta
+    mean_tmp<-sig2_c*mu_c/(sig2_c+n*tau2_c) + n*tau2_c*Xbar/(sig2_c+n*tau2_c)
+    var_tmp<-sig2_c*tau2_c/(sig2_c+n*tau2_c)
+    theta_c = rnorm(K,mean=mean_tmp,sd=sqrt(var_tmp))
+    
+    # mu
+    mean_tmp<-tau2_c*mu0/(tau2_c+2*sig2mu) + 2*sig2mu*mean(theta_c)/(tau2_c + 2*sig2mu)
+    var_tmp<- sig2mu*tau2_c/(tau2_c + 2*sig2mu)
+    mu_c = rnorm(1,mean=mean_tmp,sd=sqrt(var_tmp))
+    
+    # sigma2
+    a_tmp<-a1+10
+    b_tmp<- b1+0.5 * sum((X-rep(theta_c,each=10))^2)
+    sig2_c = rinvgamma(1,shape=a_tmp,scale=b_tmp)
+    
+    # tau2
+    a_tmp<-a2+1
+    b_tmp<-b2+0.5*sum((theta_c-mu_c)^2)
+    tau2_c = rinvgamma(1,shape=a_tmp,scale=b_tmp)
+    
+    mc_mat[i,] = c(theta_c,mu_c,sig2_c,tau2_c)
+  }
+  
+  mc_mat<-mc_mat[-c(1:burn),]
+  
+  CI_mat<-apply(X=mc_mat,FUN= function(x) quantile(x,probs=c(alpha_lev/2,1-alpha_lev/2)),MARGIN=2)
+  
+  CI_array[i_rep,,] = CI_mat
+}
+
+
+```
+
+Now we can check how often the true parameter fell within the confidence limits, say for $\theta_1$.
+
+```{r}
+theta1_CI_Mat<-CI_array[,,1]
+mean(theta_true[1]> theta1_CI_Mat[,1] & theta_true[1] < theta1_CI_Mat[,2])
+```
+
+What did we learn?
+
+
+
+
+
+
+

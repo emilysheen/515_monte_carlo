@@ -1,0 +1,102 @@
+---
+title: "Poisson Process Simulation"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+## Example 1
+Let's set up a basic simulation for the PP.  We can run it for a fixed time or until a fixed number of events have occurred.  For multiple runs, a fixed time might more sense.  Let's set up a function to do this.
+```{r}
+# Fixed number of events
+sim_PP_event<-function(k,lambda){
+  T<-rexp(n=k,rate=lambda)
+  return(cumsum(T))
+}
+```
+Now lets try a few examples.
+```{r}
+k<-20; lambda<-1/2
+N1<-sim_PP_event(k,lambda)
+plot(stepfun(N1,0:k)) #needs starting value included
+```
+
+
+
+## Example 2
+Now lets generate the process multiple times, but for a fixed time interval.  This is a little bit harder and there are at least two ways you could do it.  The first is to still only keep track of the arrival times, while second uses a grid.
+
+### Approach 1
+```{r}
+# Fixed interval
+sim_PP_event<-function(n,T,lambda,KMax){
+  S<-vector(mode="list",length=n)
+  for(i in 1:n){
+    T_tmp<-rexp(n=KMax,rate=lambda)
+    S_tmp<-cumsum(T_tmp)
+    #if(S_tmp[1]>T){S[[i]]=NULL
+    #}else{
+    S[[i]] = S_tmp[S_tmp<=T]#} 
+  }
+  return(S)
+}
+```
+
+Let's try it out.  
+```{r}
+set.seed(515)
+n<-20; lambda<-2; T<-5; KMax<-100
+N<-sim_PP_event(n,T,lambda,KMax)
+NT<-unlist(lapply(N,FUN="length"))
+plot(stepfun(N[[1]],0:NT[1]),ylim=c(0,max(NT)),xlim=c(0,T)) 
+for(i in 2:n){
+  plot(stepfun(N[[i]],0:NT[i]),add=TRUE,col=i) 
+}
+```
+Note that this code won't work quite right if there are runs with no events.  You can fix this, but it is a bit annoying.
+
+
+#### Approach 2
+This isn't as elegent in terms of saving memory, but it is a bit simpler.  We will just fix a grid to generate the processes on.
+```{r}
+T<-1
+M<-100 # number of grid points
+lambda<-5
+n<-1000
+
+# Can include default for M
+sim_PP_grid<-function(n,T,lambda,M=100){
+  t<-seq(0,T,length=M)
+  S_mat<-matrix(0,nrow=n,ncol=M)
+  for(i in 1:n){
+    Ntmp<-rpois(1,lambda=lambda)
+    if(Ntmp>0){
+      Mtmp<-sample(1:M,size=Ntmp)
+      S_mat[i,Mtmp]<-1
+    }
+  }
+  N<-t(apply(S_mat,1,FUN="cumsum"))
+  return(list(t=t,N=N))
+}
+
+PP<-sim_PP_grid(n,T,lambda)
+matplot(PP$t,t(PP$N),type="l")
+```
+Not absolutely perfect, but not bad.  Also a lot easier.
+
+```{r}
+# Lets look at number of points that fall between 0 and T/2
+N12<-PP$N[,M/2]
+barplot(summary(as.factor(N12))/n,ylim=c(0,0.25))
+barplot(dpois(0:max(N12),lambda=lambda*T/2),names.arg=0:max(N12),ylim=c(0,0.25))
+```
+
+
+
+
+
+
+
+
+
+
